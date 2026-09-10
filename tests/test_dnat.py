@@ -136,7 +136,8 @@ class DnatTests(unittest.TestCase):
         import io
         with patch.object(dnat, 'all_my_rules', side_effect=[[(self.api, self.body)], []]) as listing, \
              patch.object(dnat, 'delete_rule') as delete, \
-             patch('builtins.input', side_effect=['1', '2', '2', '0']), \
+             patch.object(dnat, 'selected_rule', return_value=self.body), \
+             patch('builtins.input', side_effect=['1', '1', '1', '0']), \
              contextlib.redirect_stdout(io.StringIO()) as output:
             dnat.list_page({})
         delete.assert_called_once_with(self.api, 'test', expected=self.body)
@@ -148,7 +149,8 @@ class DnatTests(unittest.TestCase):
         import io
         with patch.object(dnat, 'all_my_rules', return_value=[(self.api, self.body)]), \
              patch.object(dnat, 'delete_rule') as delete, \
-             patch('builtins.input', side_effect=['1', '2', '', '0']), \
+             patch.object(dnat, 'selected_rule', return_value=self.body), \
+             patch('builtins.input', side_effect=['1', '1', '', '0']), \
              contextlib.redirect_stdout(io.StringIO()):
             dnat.list_page({})
         delete.assert_not_called()
@@ -186,7 +188,7 @@ class DnatTests(unittest.TestCase):
              patch.object(rest, 'get_json', return_value={'ports': [{'port': 22}]}), \
              patch.object(cci_network, 'attach_dnat') as attach, \
              patch.object(cci_ssh, 'show_connection') as show, \
-             patch('builtins.input', side_effect=['1', '', '2']):
+             patch('builtins.input', side_effect=['1', '', '1']):
             dnat.bind_existing_cci({}, self.api, row)
         plan = attach.call_args.args[-1]
         self.assertEqual(plan['mode'], 'existing')
@@ -202,3 +204,50 @@ class DnatTests(unittest.TestCase):
             with self.assertRaises(cli.ConfigError):
                 cci_network.attach_dnat({}, client, 'ws', 'app', {'expected_uid': 'original'})
         api.assert_not_called()
+
+    def test_unbind_polls_once_and_preserves_rule(self):
+        import copy
+        row = {**self.body, 'uid': 'same', 'state': 'ACTIVE'}
+        row['properties'] = {**row['properties'], 'internal_instance_name': 'app'}
+        unbound = copy.deepcopy(row)
+        unbound['state'] = 'CREATED'
+        unbound['properties']['internal_instance_name'] = ''
+        with patch.object(dnat, 'selected_rule', return_value=row), \
+             patch.object(self.api, 'request') as request, \
+             patch.object(self.api, 'list', side_effect=[[row], [unbound]]), \
+             patch.object(dnat.time, 'sleep'):
+            self.assertEqual(dnat.unbind_rule(self.api, row), unbound)
+        request.assert_called_once_with('POST', '/test/unbind', {})
+
+    def test_delete_bound_rule_unbinds_before_delete_and_stops_on_failure(self):
+        import contextlib
+        import io
+        bound = {**self.body, 'properties': {**self.body['properties'], 'internal_instance_name': 'app'}}
+        events = []
+        with patch.object(dnat, 'selected_rule', return_value=bound), \
+             patch.object(dnat, 'unbind_rule', side_effect=lambda *a: events.append('unbind') or self.body), \
+             patch.object(dnat, 'delete_rule', side_effect=lambda *a, **k: events.append('delete')), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(dnat.remove_rule(self.api, bound, confirmed=True))
+        self.assertEqual(events, ['unbind', 'delete'])
+        with patch.object(dnat, 'selected_rule', return_value=bound), \
+             patch.object(dnat, 'unbind_rule', side_effect=cli.ConfigError('pending')), \
+             patch.object(dnat, 'delete_rule') as delete, contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(cli.ConfigError):
+                dnat.remove_rule(self.api, bound, confirmed=True)
+        delete.assert_not_called()
+
+    def test_unbind_replacement_cannot_pass_verification(self):
+        row = {**self.body, 'uid': 'original', 'state': 'ACTIVE',
+               'properties': {**self.body['properties'], 'internal_instance_name': 'app'}}
+        with patch.object(dnat, 'selected_rule', return_value=row), \
+             patch.object(self.api, 'request'), \
+             patch.object(self.api, 'list', return_value=[{**row, 'uid': 'other'}]):
+            with self.assertRaises(cli.ConfigError):
+                dnat.unbind_rule(self.api, row)
+
+    def test_detail_rechecks_owner(self):
+        with patch.object(dnat, 'selected_rule', return_value=self.body), \
+             patch.object(self.api, 'request', return_value={**self.body, 'creator_id': 'other'}):
+            with self.assertRaises(cli.ConfigError):
+                dnat.show_rule(self.api, self.body)

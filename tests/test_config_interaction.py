@@ -106,7 +106,7 @@ items = ["中文", "a"]
         self.assertEqual(cli.load_config()['sco']['access_key_id'], 'id')
 
     def test_region_selection_rejects_invalid_numbers(self):
-        with patch('builtins.input', side_effect=['0', '4', 'cnsh01', 'abc', '3']):
+        with patch('builtins.input', side_effect=['4', 'cnsh01', 'abc', '3']):
             with contextlib.redirect_stdout(io.StringIO()) as output:
                 selected = cli.choose_region(cli.load_config())
         self.assertEqual(selected, 'cnyc01')

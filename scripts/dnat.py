@@ -223,6 +223,71 @@ def delete_rule(api, name, *, expected=None):
     raise cli.ConfigError('删除请求已提交，但规则仍在列表中，请稍后重新查询。')
 
 
+def selected_rule(api, expected):
+    user_id = api.current_user_id()
+    row = next((r for r in api.list() if r['name'] == expected['name']), None)
+    if (not row or row.get('deleted') or row.get('creator_id') != user_id
+            or any(row.get(k) != expected.get(k) for k in ('uid', 'properties'))):
+        raise cli.ConfigError('规则归属或内容已变化，请刷新列表后重试。')
+    return row
+
+
+def unbind_rule(api, expected):
+    from scripts.cci_network import is_bound
+    row = selected_rule(api, expected)
+    if not is_bound(row):
+        if row.get('state') != 'CREATED':
+            raise cli.ConfigError('规则正在变更或状态异常，请刷新后重试。')
+        return row
+    if row.get('state') != 'ACTIVE':
+        raise cli.ConfigError('仅能解绑 ACTIVE 规则，请等待当前操作完成。')
+    api.request('POST', '/' + urllib.parse.quote(row['name'], safe='') + '/unbind', {})
+    for _ in range(10):
+        latest = next((r for r in api.list() if r['name'] == row['name']), None)
+        if latest:
+            if (latest.get('uid') != row.get('uid') or latest.get('creator_id') != row.get('creator_id')
+                    or latest.get('deleted') or any(latest.get('properties', {}).get(k) != row['properties'].get(k)
+                        for k in ('external_ip', 'external_port', 'protocol', 'eip_id'))):
+                raise cli.ConfigError('解绑后规则身份或入口发生变化，已停止后续操作。')
+            if latest.get('state') == 'CREATED' and not is_bound(latest):
+                return latest
+            if latest.get('state') == 'FAILED':
+                raise cli.ConfigError('解绑失败，未执行后续操作，请检查云端状态。')
+        time.sleep(2)
+    raise cli.ConfigError('解绑请求已提交，但尚未确认完成；未执行后续操作，请刷新查看。')
+
+
+def remove_rule(api, expected, *, confirmed=False):
+    from scripts.cci_network import is_bound
+    row = selected_rule(api, expected)
+    bound = is_bound(row)
+    action = '解绑并删除' if bound else '删除'
+    print(label(row))
+    if bound:
+        print('此规则已绑定；将先解绑再删除，原目标会失去此入口。')
+    if not confirmed and choose('确认' + action + '此规则', ['取消', action], default='取消') != action:
+        return False
+    if bound:
+        row = unbind_rule(api, row)
+    try:
+        delete_rule(api, row['name'], expected=row)
+    except cli.ConfigError:
+        if bound:
+            print('解绑已确认，但删除未确认完成；入口已断开，请刷新列表检查规则。')
+        raise
+    print('删除已验证：' + row['name'])
+    return True
+
+
+def show_rule(api, expected):
+    row = selected_rule(api, expected)
+    detail = api.request('GET', '/' + urllib.parse.quote(row['name'], safe=''))
+    if (not isinstance(detail, dict) or detail.get('uid') != row.get('uid')
+            or detail.get('creator_id') != row.get('creator_id') or detail.get('deleted')):
+        raise cli.ConfigError('规则详情归属或身份不匹配，未展示。')
+    print(json.dumps(detail, indent=2, ensure_ascii=False))
+
+
 def label(row):
     p = row.get('properties', {})
     target = p.get('internal_instance_name') or p.get('internal_ip') or '未绑定'
@@ -322,13 +387,19 @@ def list_page(config, eip_name=None, plain=False):
             continue
         api, row = entries[int(value) - 1]
         try:
-            action = choose(label(row), ['返回列表', '删除', '绑定 CCI'], default='返回列表')
+            action = choose(label(row), ['返回列表', '删除', '绑定 CCI', '解绑', '查看详情'], default='返回列表')
             if action == '绑定 CCI':
                 bind_existing_cci(config, api, row)
-            if action == '删除' and choose('确认删除此规则', ['取消', '删除'], default='取消') == '删除':
-                print('正在删除并核实云端状态……', flush=True)
-                delete_rule(api, row['name'], expected=row)
-                print('删除已验证：' + row['name'])
+            if action == '删除':
+                remove_rule(api, row)
+            elif action == '解绑':
+                print(label(row))
+                print('解绑会断开原目标的此入口，规则及其端口保留。')
+                if choose('确认解绑此规则', ['取消', '解绑'], default='取消') == '解绑':
+                    unbind_rule(api, row)
+                    print('解绑已验证：' + row['name'])
+            elif action == '查看详情':
+                show_rule(api, row)
         except Cancelled:
             print('已取消操作。')
         except cli.ConfigError as error:
@@ -336,13 +407,13 @@ def list_page(config, eip_name=None, plain=False):
 
 
 def main(args):
-    parser = argparse.ArgumentParser(description='DNAT 规则管理：创建、列出、绑定已有 CCI、删除。')
+    parser = argparse.ArgumentParser(description='DNAT 规则管理：创建、列出、绑定已有 CCI、解绑、删除。')
     parser.add_argument('action', nargs='?', choices=['create', 'list', 'delete'])
     parser.add_argument('--eip', help='可选 EIP 范围；创建时省略则编号选择，列表默认汇总全部')
     parser.add_argument('--plain', action='store_true', help='仅打印列表，不进入规则操作页面')
     parser.add_argument('--file', help='创建用的 JSON 文件')
     parser.add_argument('--name', help='待删除规则名称；省略则编号选择')
-    parser.add_argument('--yes', action='store_true', help='跳过创建/删除确认')
+    parser.add_argument('--yes', action='store_true', help='跳过创建/删除确认；删除已绑定规则会先解绑')
     options = parser.parse_args(args)
     if not options.action:
         from scripts.service_menu import menu
@@ -362,10 +433,7 @@ def main(args):
                 api, row = matches[0]
             else:
                 api, row = choose('选择待删除规则', entries, lambda item: label(item[1]))
-            print(label(row))
-            if options.yes or choose('确认删除此规则', ['取消', '删除'], default='取消') == '删除':
-                delete_rule(api, row['name'], expected=row)
-                print('删除已验证：' + row['name'])
+            remove_rule(api, row, confirmed=options.yes)
             return 0
         eips = Client(config).resources('network.eip.v1.eip')
         if options.eip:

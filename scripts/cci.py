@@ -25,19 +25,24 @@ def choose(label, items, describe=str, default=None):
     if not items:
         raise cli.ConfigError(f'{label}没有可选项，请检查权限和上级选择。')
     print(f'\n{label}：')
-    for index, item in enumerate(items, 1):
+    back = next((item for item in items if isinstance(item, str)
+                 and item in ('返回', '返回列表', '取消')), None)
+    choices = [item for item in items if item is not back]
+    for index, item in enumerate(choices, 1):
         suffix = ' [默认]' if item == default else ''
         print(f'{index}. {describe(item)}{suffix}')
-    if not any(isinstance(item, str) and item == '取消' for item in items):
-        print('q. 取消操作')
+    suffix = ' [默认]' if back is not None and back == default else ''
+    print(f'0. {back or "返回"}{suffix}')
     while True:
         answer = input('输入编号（默认项可回车）：').strip()
-        if answer.lower() == 'q':
+        if answer.lower() in ('0', 'q'):
+            if back is not None:
+                return back
             raise Cancelled
         if not answer and default in items:
             return default
-        if answer.isascii() and answer.isdecimal() and 1 <= int(answer) <= len(items):
-            return items[int(answer) - 1]
+        if answer.isascii() and answer.isdecimal() and 1 <= int(answer) <= len(choices):
+            return choices[int(answer) - 1]
         print('请输入有效编号。')
 
 
@@ -354,7 +359,7 @@ def create(config):
     defaults = config.get('cci', {})
     if not isinstance(defaults, dict):
         raise cli.ConfigError('[cci] 必须是配置表。')
-    print('创建 CCI：列表输入编号；输入 q 或按 Ctrl-C 取消。')
+    print('创建 CCI：编号列表输入 0 返回；文字输入可用 q 取消，Ctrl-C 退出。')
     try:
         workspace, name, ports, document = prepare(client, defaults)
         from scripts.cci_network import plan_dnat, attach_dnat

@@ -5,3 +5,6 @@ __pycache__/
 .cache/
 vendor/sco/download-*/
 /.config-*.tmp
+
+# Local config backups may contain credentials.
+/config.toml.*

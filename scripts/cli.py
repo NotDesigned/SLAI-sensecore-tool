@@ -195,8 +195,12 @@ def choose_region(config):
     print('请选择 Region：')
     for number, (code, name) in enumerate(choices, 1):
         print(f'{number}. {name} ({code})')
+    print('0. 返回')
     while True:
-        value = input(f'输入编号 [1-{len(choices)}]：').strip()
+        value = input(f'输入编号 [0-{len(choices)}]：').strip()
+        if value in ('0', 'q'):
+            from scripts.cci import Cancelled
+            raise Cancelled
         if value.isascii() and value.isdecimal() and 1 <= int(value) <= len(choices):
             return choices[int(value) - 1][0]
         print('请输入列表中的有效编号。')
@@ -309,11 +313,15 @@ def cci_service(config):
 
 
 def execute(action):
+    from scripts.cci import Cancelled
     try:
         config = load_config(for_init=action in ('install', 'init', 'docker-push', 'ccr'))
         {'install': install_and_configure, 'init': initialize, 'uninstall': uninstall,
          'docker-push': docker_push, 'cci-create': cci_create, 'ccr': ccr_service,
          'cci': cci_service}[action](config)
+    except Cancelled:
+        print('已返回。')
+        return 0
     except (ConfigError, OSError) as error:
         # OSError text may include user-controlled values; keep it generic.
         print(str(error) if isinstance(error, ConfigError) else '无法读取配置或执行命令，请检查路径、权限和依赖。', file=sys.stderr)

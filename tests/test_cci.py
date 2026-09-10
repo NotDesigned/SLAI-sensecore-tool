@@ -89,7 +89,7 @@ class CciTests(unittest.TestCase):
 
     def test_choose_retries_and_returns_original_object(self):
         items = [{'name': 'a'}, {'name': 'b'}]
-        with patch('builtins.input', side_effect=['0', '3', '-1', 'x', '2']):
+        with patch('builtins.input', side_effect=['3', '-1', 'x', '2']):
             self.assertIs(cci.choose('资源', items), items[1])
 
     def test_cancel_label_is_generic_and_not_duplicated(self):
@@ -99,7 +99,16 @@ class CciTests(unittest.TestCase):
         self.assertNotIn('取消创建', output.getvalue())
         with patch('builtins.input', return_value='1'), contextlib.redirect_stdout(io.StringIO()) as output:
             cci.choose('资源', ['a'])
-        self.assertIn('q. 取消操作', output.getvalue())
+        self.assertIn('0. 返回', output.getvalue())
+
+    def test_zero_returns_from_resource_and_action_menus(self):
+        with patch('builtins.input', return_value='0'), self.assertRaises(cci.Cancelled):
+            cci.choose('资源', ['a'])
+        for label in ('取消', '返回列表'):
+            with patch('builtins.input', return_value='0'):
+                self.assertEqual(cci.choose('操作', [label, '删除'], default=label), label)
+            with patch('builtins.input', return_value='1'):
+                self.assertEqual(cci.choose('操作', [label, '删除'], default=label), '删除')
 
     def test_empty_and_cancel_and_default(self):
         with self.assertRaises(cli.ConfigError):
