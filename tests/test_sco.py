@@ -135,7 +135,7 @@ class ScoTests(unittest.TestCase):
             self.assertEqual(run.call_count, 1)
 
     def test_unsupported_platform_stops_before_install(self):
-        with patch.object(sco.sys, 'platform', 'win32'), patch.object(sco, 'fetch') as fetch:
+        with patch.object(sco.sys, 'platform', 'freebsd'), patch.object(sco, 'fetch') as fetch:
             with self.assertRaisesRegex(sco.ConfigError, 'Linux 和 macOS'):
                 sco.install(self.config)
         fetch.assert_not_called()

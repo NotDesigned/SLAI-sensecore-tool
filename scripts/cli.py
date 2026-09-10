@@ -34,7 +34,7 @@ def load_config(for_init=False):
     except FileNotFoundError:
         if not for_init:
             raise ConfigError('缺少 config.toml，请复制 config.example.toml 为 config.toml 并填写配置。') from None
-        config = tomllib.loads((ROOT / 'config.example.toml').read_text())
+        config = tomllib.loads((ROOT / 'config.example.toml').read_text(encoding='utf-8'))
     except tomllib.TOMLDecodeError:
         # Parser errors can contain excerpts of credentials.
         raise ConfigError('config.toml 语法错误，请检查 TOML 格式。') from None
@@ -68,7 +68,7 @@ def runtime(config):
         env[variable] = str(path.resolve())
     bin_dir = Path(env['SCO_HOME']) / 'bin'
     env['PATH'] = str(bin_dir) + os.pathsep + env.get('PATH', '')
-    executable = bin_dir / 'sco'
+    executable = bin_dir / ('sco.exe' if sys.platform == 'win32' else 'sco')
     return env, executable
 
 
@@ -100,8 +100,11 @@ def install_components(config, env, executable):
 
 
 def install(config):
-    if sys.platform not in ('linux', 'darwin'):
-        raise ConfigError('目前仅支持 Linux 和 macOS。')
+    if sys.platform not in ('linux', 'darwin', 'win32'):
+        raise ConfigError('目前支持 Windows x64、Linux 和 macOS。')
+    if sys.platform == 'win32':
+        from scripts.windows import install as windows_install
+        return windows_install(config)
     env, executable = runtime(config)
     if not shutil.which('curl') or not shutil.which('bash'):
         raise ConfigError('请先安装 curl 和 Bash。')
@@ -120,7 +123,7 @@ def install(config):
         shim = Path(directory) / 'curl'
         helper = Path(__file__).resolve().with_name('download_cache.py')
         shim.write_text('#!/bin/sh\nexec ' + shlex.quote(sys.executable) + ' '
-                        + shlex.quote(str(helper)) + ' "$@"\n')
+                        + shlex.quote(str(helper)) + ' "$@"\n', encoding='utf-8')
         shim.chmod(0o700)
         env['SLAI_DOWNLOAD_CACHE'] = str(cache)
         env['SLAI_REAL_CURL'] = curl
@@ -148,7 +151,7 @@ def install_and_configure(config):
 
 def save_config_updates(section, updates, original):
     try:
-        text = CONFIG.read_text() if CONFIG.exists() else (ROOT / 'config.example.toml').read_text()
+        text = CONFIG.read_text(encoding='utf-8') if CONFIG.exists() else (ROOT / 'config.example.toml').read_text(encoding='utf-8')
         document = tomlkit.parse(text)
     except tomlkit.exceptions.ParseError:
         raise ConfigError('config.toml 语法错误，未保存输入。') from None
@@ -351,8 +354,8 @@ def menu():
 
 
 def main():
-    if sys.platform not in ('linux', 'darwin'):
-        print('目前仅支持 Linux 和 macOS。', file=sys.stderr)
+    if sys.platform not in ('linux', 'darwin', 'win32'):
+        print('目前支持 Windows x64、Linux 和 macOS。', file=sys.stderr)
         return 1
     try:
         if len(sys.argv) == 1:

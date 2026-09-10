@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
-import shlex
+from scripts.commands import format_command
 import shutil
 import subprocess
 import tempfile
@@ -185,7 +185,7 @@ class Client:
     def read(self, args, diagnostics=False):
         try:
             result = subprocess.run(self.command(args), env=self.env, capture_output=True,
-                                    text=True, timeout=45)
+                                    text=True, timeout=45, encoding='utf-8')
         except subprocess.TimeoutExpired:
             raise cli.ConfigError('SCO 列表查询超时，请检查网络后重试。') from None
         if result.returncode:
@@ -250,7 +250,7 @@ def local_images():
         return []
     try:
         result = subprocess.run([docker, 'image', 'ls', '--format', '{{json .}}'],
-                                capture_output=True, text=True, timeout=15)
+                                capture_output=True, text=True, timeout=15, encoding='utf-8')
         if result.returncode:
             print('本地 Docker 镜像列表不可用，可填写远端镜像地址。')
             return []
@@ -380,14 +380,14 @@ def create(config):
             network_path = path.with_suffix('.dnat.json')
             network_path.touch(mode=0o600)
             network_path.write_text(json.dumps({'eip_name': network['eip']['name'],
-                'rule': network['body'], 'ports': network['ports'], 'mode': network.get('mode', 'new')}, indent=2, ensure_ascii=False))
+                'rule': network['body'], 'ports': network['ports'], 'mode': network.get('mode', 'new')}, indent=2, ensure_ascii=False), encoding='utf-8')
             print(f'DNAT 计划已保存：{network_path}')
         print(f'\n工作空间：{workspace}\n端口：{ports or "无"}\n配置文件：{path}')
         print(yaml.safe_dump(document, allow_unicode=True, sort_keys=False))
         args = ['cci', 'apps', 'create', name, '--workspace-name', workspace, '--config', str(path)]
         if ports:
             args.extend(['--ports', ports])
-        print('提交命令（需使用 README 中的 SCO 环境变量）：' + shlex.join(client.command(args)))
+        print('提交命令（需使用 README 中的 SCO 环境变量）：' + format_command(client.command(args)))
         if choose('下一步', ['仅保存配置', '提交创建'], default='仅保存配置') == '仅保存配置':
             return
         cli.run(client.command(args), client.env)

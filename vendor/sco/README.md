@@ -36,3 +36,7 @@
 在仓库根目录运行 `uv run main.py`，选择 `1`。程序自动选择当前系统/架构并调用官方安装器。请保留整个目录，只有单个压缩包不足以完成官方安装流程。
 
 已在 macOS ARM64 上验证离线安装；其他平台完成官方校验及二进制架构检查，尚未在对应系统上执行。
+
+## Windows 安装器
+
+另缓存官方 `https://sco.sensecore.cn/registry/install.ps1`，供 Windows x64 安装入口使用，采用相同的 URL 哈希文件名与 SHA-256 元数据。Windows runtime 尚未捆绑，安装器首次联网下载和校验 Windows 包。

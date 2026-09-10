@@ -22,7 +22,7 @@ def main(args):
         raise cli.ConfigError('SCO Profile 名称无效。')
     original = Path(env['SCO_CONFIG']) / 'profiles' / (profile + '.toml')
     try:
-        document = tomlkit.parse(original.read_text())
+        document = tomlkit.parse(original.read_text(encoding='utf-8'))
     except tomlkit.exceptions.ParseError:
         raise cli.ConfigError('SCO Profile 格式无效。') from None
     region = cli.string_value(config['sco'], 'region')
@@ -40,8 +40,8 @@ def main(args):
         (root / 'profiles').mkdir()
         target = root / 'profiles' / (profile + '.toml')
         target.touch(mode=0o600)
-        target.write_text(tomlkit.dumps(document))
-        (root / 'active_profile').write_text(profile + '\n')
+        target.write_text(tomlkit.dumps(document), encoding='utf-8')
+        (root / 'active_profile').write_text(profile + '\n', encoding='utf-8')
         env['SCO_CONFIG'] = directory
         command = [str(executable), '--profile', profile]
         if region:

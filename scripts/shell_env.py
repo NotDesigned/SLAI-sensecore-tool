@@ -19,7 +19,7 @@ def configure(env):
                      '  *) export PATH="$SCO_HOME/bin:$PATH" ;;', 'esac', END])
     edits = []
     for path in paths:
-        text = path.read_text() if path.exists() else ''
+        text = path.read_text(encoding='utf-8') if path.exists() else ''
         if START in text or END in text:
             if text.count(START) != 1 or text.count(END) != 1 or text.index(END) < text.index(START):
                 raise ValueError(f'{path} 中的 SCO 环境配置标记异常，请先检查。')
@@ -32,5 +32,5 @@ def configure(env):
     for path, original, updated in edits:
         if original != updated:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(updated)
+            path.write_text(updated, encoding='utf-8')
     return paths

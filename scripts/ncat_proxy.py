@@ -1,7 +1,7 @@
 """SSH ProxyCommand entry point: read local config and hand the stream to Ncat."""
 import os
 from pathlib import Path
-import shutil
+import subprocess
 import sys
 
 if __package__ in (None, ''):
@@ -21,10 +21,12 @@ def main():
     try:
         if len(sys.argv) != 3:
             raise cli.ConfigError('代理需要目标 IP 和端口。')
-        executable = shutil.which('ncat')
+        executable = cci_ssh.find_ncat()
         if not executable:
             raise cli.ConfigError('未找到 ncat：' + cci_ssh.ncat_install_hint())
         args = proxy_args(cli.load_config(), sys.argv[1], sys.argv[2])
+        if sys.platform == 'win32':
+            return subprocess.run([executable, *args[1:]], check=False).returncode
         os.execv(executable, [executable, *args[1:]])
     except cli.ConfigError as error:
         print(str(error), file=sys.stderr)

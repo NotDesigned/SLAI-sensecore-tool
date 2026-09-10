@@ -28,7 +28,7 @@ def public_key(defaults):
     if not path.is_absolute():
         path = cli.ROOT / path
     try:
-        raw = path.read_text().strip()
+        raw = path.read_text(encoding='utf-8').strip()
     except UnicodeError:
         raise cli.ConfigError('SSH 公钥文件不是有效文本。') from None
     parts = raw.split()
@@ -36,7 +36,7 @@ def public_key(defaults):
             or not parts[0].startswith(('ssh-', 'ecdsa-', 'sk-'))):
         raise cli.ConfigError('请提供单个 OpenSSH 公钥，不能使用私钥或 authorized_keys 选项。')
     try:
-        result = subprocess.run(['ssh-keygen', '-l', '-f', str(path)], capture_output=True, text=True, timeout=10)
+        result = subprocess.run(['ssh-keygen', '-l', '-f', str(path)], capture_output=True, text=True, timeout=10, encoding='utf-8')
     except subprocess.TimeoutExpired:
         raise cli.ConfigError('SSH 公钥校验超时，请检查 ssh-keygen。') from None
     if result.returncode:
@@ -132,14 +132,22 @@ def connection_command(defaults, host, port):
     if proxy_args:
         helper = Path(__file__).with_name('ncat_proxy.py').resolve()
         # OpenSSH expands percent tokens even inside shell-quoted strings.
-        proxy = shlex.join([sys.executable.replace('%', '%%'), str(helper).replace('%', '%%'), '%h', '%p'])
+        if sys.platform == 'win32':
+            if any(c in sys.executable + str(helper) for c in '%\r\n\"'):
+                raise cli.ConfigError('Windows SSH 代理路径不能含百分号、换行或双引号，请移动项目后重试。')
+            proxy = f'"{sys.executable}" "{helper}" %h %p'
+        else:
+            proxy = shlex.join([sys.executable.replace('%', '%%'), str(helper).replace('%', '%%'), '%h', '%p'])
         args += ['-o', 'ProxyCommand=' + proxy]
-    return shlex.join([*args, 'root@' + host])
+    from scripts.commands import format_command
+    return format_command([*args, 'root@' + host])
 
 
 def ncat_install_hint():
     import platform
     import sys
+    if sys.platform == 'win32':
+        return 'winget install --id Insecure.Nmap -e （或从 https://nmap.org/download.html 安装 Nmap/Ncat）'
     if sys.platform == 'darwin':
         return 'brew install nmap'
     if sys.platform == 'linux':
@@ -158,13 +166,32 @@ def ncat_install_hint():
 
 
 def show_connection(defaults, host, port, name):
-    import shutil
+    import sys
     command = connection_command(defaults, host, port)
-    args = shlex.split(command)
-    proxy = args[args.index('-o') + 1].removeprefix('ProxyCommand=') if '-o' in args else None
-    if proxy and not shutil.which('ncat'):
+    proxy = ncat_args(defaults, host, port) is not None
+    if proxy and not find_ncat():
         print('本机未找到 ncat，请先安装：' + ncat_install_hint())
-    print('\nSSH 连接命令（复制执行）：\n' + command)
-    print('同一命令也可粘贴到 VS Code 的 Remote-SSH: Add New SSH Host…。')
+    if sys.platform == 'win32':
+        print('\nSSH 连接命令（PowerShell 7.3+ 复制执行）：\n' + command)
+        print('Windows PowerShell 5.1 的嵌套引号行为不同，请在 PowerShell 7.3+ 执行。')
+    else:
+        print('\nSSH 连接命令（复制执行）：\n' + command)
+    print('同一命令可用于 VS Code Remote SSH；请确保 VS Code 使用本机 OpenSSH 和相同项目路径。')
     print('非默认私钥请在命令中加 -i，或在 SSH 配置中加 IdentityFile。')
     print('连接信息已生成；实际可用性仍需 SSH 登录验证。')
+
+
+def find_ncat():
+    import os
+    import shutil
+    import sys
+    executable = shutil.which('ncat')
+    if executable or sys.platform != 'win32':
+        return executable
+    for variable in ('ProgramFiles', 'ProgramFiles(x86)', 'LOCALAPPDATA'):
+        root = os.environ.get(variable)
+        if root:
+            candidate = Path(root) / 'Nmap' / 'ncat.exe'
+            if candidate.is_file():
+                return str(candidate)
+    return None

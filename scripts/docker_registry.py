@@ -65,7 +65,7 @@ def complete_config(config):
 def has_credentials(registry, env):
     directory = Path(env.get('DOCKER_CONFIG') or Path.home() / '.docker')
     try:
-        data = json.loads((directory / 'config.json').read_text())
+        data = json.loads((directory / 'config.json').read_text(encoding='utf-8'))
     except FileNotFoundError:
         return False
     except (OSError, ValueError):
@@ -85,7 +85,7 @@ def has_credentials(registry, env):
             raise ConfigError('找不到 Docker 配置指定的 credential helper，请修复 Docker 安装。')
         try:
             result = subprocess.run([executable, 'get'], input=registry, text=True,
-                                    capture_output=True, env=env, timeout=15)
+                                    capture_output=True, env=env, timeout=15, encoding='utf-8')
         except subprocess.TimeoutExpired:
             raise ConfigError('读取 Docker 凭据超时，请检查系统钥匙串是否解锁。') from None
         if result.returncode:
@@ -115,7 +115,7 @@ def login(docker, settings, env):
             break
         print('密码不能为空。')
     result = subprocess.run([docker, 'login', settings['registry'], '--username', username, '--password-stdin'],
-                            env=env, input=password + '\n', text=True)
+                            env=env, input=password + '\n', text=True, encoding='utf-8')
     if result.returncode:
         raise ConfigError('Docker 登录失败，上传流程已停止。')
     # Docker manages persistence via its credential store, not config.toml.
@@ -124,7 +124,7 @@ def login(docker, settings, env):
 def run_push(docker, target, env):
     tail = []
     with subprocess.Popen([docker, 'push', target], env=env, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, text=True) as process:
+                          stderr=subprocess.STDOUT, text=True, encoding='utf-8') as process:
         for line in process.stdout:
             print(line, end='', flush=True)
             tail.append(line.lower())

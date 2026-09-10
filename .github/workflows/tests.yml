@@ -1,0 +1,26 @@
+name: Tests
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - run: uv sync --locked
+      - name: POSIX suite
+        if: runner.os != 'Windows'
+        run: uv run python -m unittest discover -s tests -v
+      - name: Windows compatibility and native PowerShell suite
+        if: runner.os == 'Windows'
+        run: uv run python -m unittest discover -s tests -p test_windows.py -v
+      - run: uv run python -m compileall -q scripts
+      - run: uv run main.py cci --help
+      - run: uv run main.py dnat --help

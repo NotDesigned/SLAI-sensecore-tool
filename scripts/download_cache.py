@@ -24,7 +24,7 @@ def fetch(url, cache, curl, env):
     cache.mkdir(parents=True, exist_ok=True)
     if target.is_file() and record.is_file():
         try:
-            metadata = json.loads(record.read_text())
+            metadata = json.loads(record.read_text(encoding='utf-8'))
             if metadata['url'] == url and metadata['sha256'] == digest(target):
                 print(f'[本地缓存] {url.rsplit("/", 1)[-1]}', flush=True)
                 return target
@@ -41,7 +41,7 @@ def fetch(url, cache, curl, env):
         metadata = {'url': url, 'sha256': digest(partial), 'bytes': partial.stat().st_size}
         partial.replace(target)
         temporary_record = Path(tmp) / 'metadata.json'
-        temporary_record.write_text(json.dumps(metadata, indent=2) + '\n')
+        temporary_record.write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
         temporary_record.replace(record)
     return target
 

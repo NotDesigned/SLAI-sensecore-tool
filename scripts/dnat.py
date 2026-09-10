@@ -445,7 +445,7 @@ def main(args):
             eip = choose('EIP', eips, lambda x: f"{x['name']} · {x.get('display_name')} · {x.get('zone')}")
         api = Api(config, eip)
         try:
-            template = json.loads(Path(options.file or ask('规则 JSON 文件路径')).expanduser().read_text())
+            template = json.loads(Path(options.file or ask('规则 JSON 文件路径')).expanduser().read_text(encoding='utf-8'))
         except ValueError:
             raise cli.ConfigError('规则文件不是有效 JSON。') from None
         body = prepare(api, template, api.list())

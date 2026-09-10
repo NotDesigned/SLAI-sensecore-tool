@@ -1,12 +1,12 @@
 # 复制为 config.toml 后编辑。所有脚本只读取仓库根目录的 config.toml。
-# 相对路径以仓库根目录为基准；~ 表示用户主目录。
+# 相对路径以仓库根目录为基准；~ 表示用户主目录。Windows 路径推荐用 C:/Users/name/...。
 [paths]
 home = "~/.sco"
 data_home = "~/.local/share/sco"
 config = "~/.config/sco"
 
 [sco]
-# 安装时无需填写凭据；配置 SCO 时会交互补齐以下三项。
+# 安装并配置流程会在初始化阶段交互补齐以下三项。
 access_key_id = ""
 access_key_secret = ""
 region = ""
@@ -17,7 +17,7 @@ profile = "default"
 language = "zh-CN"
 
 [install]
-# Linux/macOS：随 Git 分发安装器、元数据及所有支持平台的安装包，相对仓库根目录。
+# Linux/macOS 安装包随 Git 分发；Windows 安装器缓存于此，Windows runtime 首次在线下载。
 cache_dir = "vendor/sco"
 
 [regions]
