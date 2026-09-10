@@ -1,0 +1,10 @@
+{
+  "url": "https://sco.sensecore.cn/registry/20260830/packages/sco/v2.0.2/launcher/linux/amd64/sco-v2.0.2-launcher-linux-amd64.tar.gz",
+  "sha256": "24bbff0d68b7e47fdad12e903082281dc5684914eaff97620ab2670cfbe123ec",
+  "bytes": 34882089,
+  "official_sha256": "24bbff0d68b7e47fdad12e903082281dc5684914eaff97620ab2670cfbe123ec",
+  "arch": "amd64",
+  "os": "linux",
+  "runtime": "launcher",
+  "version": "v2.0.2"
+}

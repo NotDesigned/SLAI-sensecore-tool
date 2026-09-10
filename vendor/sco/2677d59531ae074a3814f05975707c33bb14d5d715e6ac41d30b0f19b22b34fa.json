@@ -1,0 +1,10 @@
+{
+  "url": "https://sco.sensecore.cn/registry/packages/sco/v2.0.2/v2/darwin/amd64/sco-v2.0.2-v2-darwin-amd64.tar.gz",
+  "sha256": "2dbbd810cf0e63e7b30c40b6b055ba981e59f95eb3916efcfb2b09638ce0cb56",
+  "bytes": 36657393,
+  "official_sha256": "2dbbd810cf0e63e7b30c40b6b055ba981e59f95eb3916efcfb2b09638ce0cb56",
+  "arch": "amd64",
+  "os": "darwin",
+  "runtime": "v2",
+  "version": "v2.0.2"
+}

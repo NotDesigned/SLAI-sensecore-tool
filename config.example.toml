@@ -1,0 +1,54 @@
+# 复制为 config.toml 后编辑。所有脚本只读取仓库根目录的 config.toml。
+# 相对路径以仓库根目录为基准；~ 表示用户主目录。
+[paths]
+home = "~/.sco"
+data_home = "~/.local/share/sco"
+config = "~/.config/sco"
+
+[sco]
+# 安装时无需填写凭据；配置 SCO 时会交互补齐以下三项。
+access_key_id = ""
+access_key_secret = ""
+region = ""
+# zone 默认 cn-sh-01；留空或省略时也使用该默认值。
+zone = "cn-sh-01"
+# profile 留空时交互询问，回车使用 default。
+profile = "default"
+language = "zh-CN"
+
+[install]
+# Linux/macOS：随 Git 分发安装器、元数据及所有支持平台的安装包，相对仓库根目录。
+cache_dir = "vendor/sco"
+
+[regions]
+# Region code 与名称，来自随仓库分发的官方地区清单。
+cnsh01 = "cn-sh-01"
+cnsh02 = "cn-sh-02"
+cnyc01 = "cn-yc-01"
+
+[docker]
+# 每次上传都询问镜像信息；以下为上次使用值或默认值。密码由 Docker 管理。
+registry = "registry.cn-sh-01.sensecore.cn"
+username = ""
+namespace = ""
+source_image = ""
+image_name = ""
+tag = "latest"
+
+[cci]
+# 创建 CCI 时的输入默认值；工作空间、资源池、规格和存储通过云端列表选择。
+# 留空或省略也使用此默认镜像；可以换成自己的完整远端镜像地址。
+image = "registry.cn-sh-01.sensecore.cn/lepton-trainingjob/ngc-pytorch:25.06-cu12.9-py3.12-ubuntu24.04"
+# 默认启用 SSH：自动启动 sshd，开放 22，使用公钥登录 root。
+ssh_enabled = true
+# 公钥路径；留空时查找 ~/.ssh/*.pub，多项时列表选择。绝不填写私钥。
+ssh_public_key = ""
+# SSH 模式下留空（或 sleep infinity）以前台 sshd 保持运行；非空则启动 sshd 后执行该命令。
+command = ""
+
+# SOCKS5 代理；server 留空则直连。连接时从本文件读取，输出命令不含凭据。
+[cci.ssh_proxy]
+server = ""
+port = 1080
+username = ""
+password = ""

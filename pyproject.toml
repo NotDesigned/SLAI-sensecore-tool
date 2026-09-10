@@ -1,0 +1,9 @@
+[project]
+name = "slai-tool"
+version = "0.1.0"
+description = "SenseCore helper scripts for SLAI accounts"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0.3",
+    "tomlkit>=0.15.1",
+]

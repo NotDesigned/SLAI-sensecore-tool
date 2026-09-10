@@ -1,0 +1,10 @@
+{
+  "url": "https://sco.sensecore.cn/registry/packages/sco/v2.0.2/v1/linux/amd64/sco-v2.0.2-v1-linux-amd64.tar.gz",
+  "sha256": "a1adfc6f0e998ecd4d25f5f383cd883a2cb32041de41a9bd47b1ad1579950be2",
+  "bytes": 34882189,
+  "official_sha256": "a1adfc6f0e998ecd4d25f5f383cd883a2cb32041de41a9bd47b1ad1579950be2",
+  "arch": "amd64",
+  "os": "linux",
+  "runtime": "v1",
+  "version": "v2.0.2"
+}

@@ -1,0 +1,7 @@
+/config.toml
+__pycache__/
+*.py[cod]
+.venv/
+.cache/
+vendor/sco/download-*/
+/.config-*.tmp

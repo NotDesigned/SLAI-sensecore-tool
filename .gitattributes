@@ -1,0 +1,3 @@
+vendor/sco/* -text
+vendor/sco/*.json text eol=lf
+vendor/sco/*.md text eol=lf
