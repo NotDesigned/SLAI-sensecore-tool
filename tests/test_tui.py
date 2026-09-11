@@ -372,11 +372,14 @@ class ListActionTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.click('#service-create')
                 for _ in range(40):
                     await pilot.pause(.025)
-                    if created.called:break
+                    if created.called and isinstance(app.screen, Details):break
                 created.assert_called_once()
                 self.assertIn('form content',app.screen.query_one(TextArea).text)
                 await pilot.press('escape')
-                await pilot.pause(.1)
+                for _ in range(100):
+                    await pilot.pause(.025)
+                    if isinstance(app.screen,Operation) and app.screen.done:break
+                self.assertTrue(isinstance(app.screen,Operation) and app.screen.done)
                 await pilot.press('0')
                 for _ in range(40):
                     await pilot.pause(.025)

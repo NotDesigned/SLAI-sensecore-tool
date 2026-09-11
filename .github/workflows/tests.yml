@@ -20,10 +20,10 @@ jobs:
       - name: Full suite on every platform
         run: uv run python -m unittest discover -s tests -v
       - name: Install native proxy test dependencies
-        if: runner.os == 'Windows'
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
         run: choco install nmap --yes --no-progress --limit-output
       - name: Real Windows SSH and SOCKS5 acceptance
-        if: runner.os == 'Windows'
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
         env:
           SLAI_NATIVE_ACCEPTANCE: '1'
         run: uv run --with paramiko python -m unittest discover -s tests -p test_windows_integration.py -v
