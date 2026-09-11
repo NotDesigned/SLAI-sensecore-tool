@@ -168,9 +168,8 @@ def ncat_install_hint():
 def show_connection(defaults, host, port, name):
     import sys
     command = connection_command(defaults, host, port)
-    proxy = ncat_args(defaults, host, port) is not None
-    if proxy and not find_ncat():
-        print('本机未找到 ncat，请先安装：' + ncat_install_hint())
+    from scripts.ssh_probe import report
+    report(defaults, host, port)
     if sys.platform == 'win32':
         print('\nSSH 连接命令（PowerShell 7.3+ 复制执行）：\n' + command)
         print('Windows PowerShell 5.1 的嵌套引号行为不同，请在 PowerShell 7.3+ 执行。')

@@ -63,7 +63,7 @@ password = ""
 
 代理模式的执行链为：系统 SSH → 项目 Python 脚本 → Ncat → SOCKS5 服务器 → DNAT 入口。Python 负责读取配置和构造参数，Ncat 负责认证及字节转发，SSH 负责主机指纹检查和公钥认证。
 
-工具仅输出一条可复制的 SSH 命令，不连接、不写入 `~/.ssh/config`。同一命令可粘贴到 VS Code 的 `Remote-SSH: Add New SSH Host…`。非默认私钥需在命令中添加 `-i 私钥路径`，或在用户自己的 SSH 配置中指定 IdentityFile。
+输出命令前自动做约 8 秒的 SSH 协议响应检查，按当前配置直连或经 SOCKS5 代理；不进行认证登录，不写入 `~/.ssh/config`。检查失败仍输出一条可复制的 SSH 命令，并提示可能未处于 SLAI 内网及检查代理、CCI/sshd/DNAT。当前代理类型为 SOCKS5，不是 HTTP/HTTPS CONNECT。同一命令可粘贴到 VS Code 的 `Remote-SSH: Add New SSH Host…`。非默认私钥需在命令中添加 `-i 私钥路径`，或在用户自己的 SSH 配置中指定 IdentityFile。
 
 命令引用本机 Python 解释器和项目脚本的绝对路径，可从任意工作目录执行。换电脑或移动项目后需重新生成。SSH/VS Code 运行环境也须能找到 ncat。
 

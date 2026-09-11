@@ -61,7 +61,7 @@ uv 会准备 Python 3.11+ 及项目依赖。首次运行需联网；SCO 安装�
 
 创建并核实 DNAT 绑定后，工具输出**一条 SSH 命令**：终端直接执行，也可粘贴到 VS Code 的 **Remote-SSH: Add New SSH Host…**。工具不会自动连接或修改 SSH config；使用非默认私钥时，在命令中加 `-i 私钥路径`。
 
-绑定状态正确不等于 SSH 已能登录；仍需目标服务正常运行、网络可达及公钥认证成功。
+输出命令前会自动检查 SSH 入口：直连或通过已配置的 SOCKS5 代理，最多等待约 8 秒。收到 SSH 协议响应会显示“入口可达”；失败提示可能未处于 SLAI 内网，请按下节配置代理，同时检查 CCI、sshd 和 DNAT。检查不进行登录，不验证公钥，也不会隐藏连接命令。
 
 ### 需要 SOCKS5 代理时
 
@@ -131,7 +131,7 @@ uv run main.py ccr list --namespace your-namespace
 
 - **安装后终端找不到 sco？** 打开新终端，或按安装输出加载 Shell 配置；项目菜单使用配置中的安装路径。
 - **找不到 ncat？** 需要 Nmap 的 Ncat，不是任意版本的 `nc`；macOS 用 `brew install nmap`。
-- **SSH 一直停在 Connecting？** 先检查是否需要配置 SOCKS5、DNAT 目标及 CCI 状态；TCP 连接尚未建立时，还没有进入公钥认证。
+- **SSH 检查不通过或停在 Connecting？** 可能不在 SLAI 内网，请配置本页说明的 SOCKS5 代理；已配置代理时也需检查代理、CCI 状态、sshd 和 DNAT。当前不支持将 HTTP/HTTPS 代理地址直接填入 SOCKS5 配置。
 - **列表没有资源？** 核对账户权限、工作空间和区域；CCI/DNAT 只显示本人资源，CCR 显示可访问范围。
 - **操作超时？** 先刷新列表核对云端状态，再决定是否重试，避免重复创建。
 
