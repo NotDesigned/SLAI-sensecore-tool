@@ -111,7 +111,7 @@ class CciServiceTests(unittest.TestCase):
                  patch.object(cci_service, 'owned_app', return_value=source), \
                  patch.object(cci_service, 'get_json', side_effect=[source, {'ports': [{'port': 22, 'target_port': 22}]}, cci_service.RestError(404)]), \
                  patch.object(cci_api, 'create') as create, \
-                 patch('builtins.input', side_effect=['new-copy', '2' if submit else '']), \
+                 patch('builtins.input', side_effect=['new-copy', '' if submit else '2']), \
                  contextlib.redirect_stdout(io.StringIO()):
                 cci_service.copy_app({}, self.ws, 'mine')
                 files = list(Path(directory).rglob('*.yaml'))

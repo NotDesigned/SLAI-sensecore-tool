@@ -183,7 +183,7 @@ def confirm_submit(client, workspace, name, document, source=None, draft=None):
         cli.save_config_updates('acp', {'last':draft.snapshot()}, draft.defaults)
         if draft.save_requested:
             return
-    if not (draft and draft.submit_requested) and ui.choose('下一步', ['仅保存配置', '提交创建'], default='仅保存配置') != '提交创建':
+    if not (draft and draft.submit_requested) and ui.choose('下一步', ['提交创建', '仅保存配置'], default='提交创建') != '提交创建':
         return
     if draft:
         draft.sync_image()

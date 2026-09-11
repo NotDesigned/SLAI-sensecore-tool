@@ -39,7 +39,7 @@ class UsabilityTests(unittest.TestCase):
         self.assertNotIn('VERY_LONG_BOOTSTRAP', output.getvalue())
         self.assertEqual(document['template']['containers'][0]['command'][-1], 'VERY_LONG_BOOTSTRAP')
 
-    def test_copy_plan_keeps_source_and_default_does_not_submit(self):
+    def test_copy_plan_keeps_source_and_explicit_save_does_not_submit(self):
         source = {'name': 'source', 'uid': 'uid', 'roles': [], 'mount': [{'id': 'volume', 'mount_path':'/data'}],
                   'resource_pool': {'name': 'pool'}, 'scheduling': {'quota_type': 'RESERVED'}}
         client = Mock()

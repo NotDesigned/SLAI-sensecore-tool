@@ -81,17 +81,85 @@ def copy_app(config, workspace, name):
     print(f'源 CCI：{name} → 新 CCI：{new_name}\n配置文件：{path}\n服务端口：{",".join(ports) or "无"}')
     print('副本沿用原镜像、资源配置和存储挂载；不迁移原 DNAT。')
     cci.preview(document)
-    if ui.choose('下一步', ['仅保存配置', '提交创建'], default='仅保存配置') != '提交创建':
+    if ui.choose('下一步', ['提交创建', '仅保存配置'], default='提交创建') != '提交创建':
         return
     check_selected(owned_app(config, workspace, name), source)
     cci_api.create(config, plan)
     print('复制创建请求已提交：' + new_name)
 
 
+def bound_tcp_rule(row, app):
+    from scripts.network import validate_destination
+    props = row.get('properties', {})
+    if (not isinstance(props, dict) or not app.get('uid') or not row.get('uid')
+            or row.get('deleted') or row.get('state') != 'ACTIVE'
+            or props.get('internal_instance_type') != 'CCI_DEPLOYMENT_SERVICE'
+            or props.get('internal_instance_name') != app['uid']
+            or str(props.get('protocol', '')).lower() != 'tcp'):
+        return False
+    try:
+        validate_destination(props.get('external_ip'), props.get('external_port'))
+        validate_destination(props.get('external_ip'), props.get('internal_port'))
+    except cli.ConfigError:
+        return False
+    return True
+
+
+def connection_entries(config, workspace, app):
+    from concurrent.futures import ThreadPoolExecutor
+    from scripts import dnat
+    current = owned_app(config, workspace, app['name'])
+    check_selected(current, app)
+    if current.get('state') != 'RUNNING':
+        return []
+    pool = current.get('resource_pool') or {}
+    if not pool.get('vpc_id') or not pool.get('available_zone'):
+        return []
+    eips = [e for e in cloud.Client(config).resources('network.eip.v1.eip')
+            if e.get('zone') == pool['available_zone']
+            and e.get('subscription_name') == workspace['subscription_name']
+            and cloud.properties(e).get('vpc_id') == pool['vpc_id']]
+    def read(eip):
+        api = dnat.Api(config, eip)
+        # A visible rule may have been bound to this user's CCI by an administrator.
+        return [(api, row) for row in api.list() if bound_tcp_rule(row, current)]
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        pages = list(executor.map(read, eips))
+    return sorted([entry for page in pages for entry in page], key=lambda entry: (
+        str(entry[1]['properties']['internal_port']) != '22',
+        entry[1]['properties']['external_ip'], int(entry[1]['properties']['external_port'])))
+
+
+def connect_app(config, workspace, app, entries):
+    from scripts import cci_ssh
+    api, selected = entries[0] if len(entries) == 1 else ui.choose('选择 SSH 连接入口', entries,
+        lambda entry: f"{entry[1]['properties']['external_ip']}:{entry[1]['properties']['external_port']} → 容器端口 {entry[1]['properties']['internal_port']}")
+    current = owned_app(config, workspace, app['name'])
+    check_selected(current, app)
+    if current.get('state') != 'RUNNING':
+        raise cli.ConfigError('CCI 已不在运行中，请刷新列表。')
+    rule = api.request('GET', '/' + urllib.parse.quote(selected['name'], safe=''))
+    if (not isinstance(rule, dict) or rule.get('uid') != selected['uid']
+            or rule.get('properties') != selected.get('properties') or not bound_tcp_rule(rule, current)):
+        raise cli.ConfigError('DNAT 绑定或端口已变化，请返回列表重新选择，未生成旧入口的连接命令。')
+    props = rule['properties']
+    cci_ssh.show_connection(config, props['external_ip'], props['external_port'], app['name'])
+
+
 def list_page(config, workspace, plain=False):
     def selected(app):
-        action = ui.choose(label(app), ['返回列表', '停止', '复制', '删除'], default='返回列表')
-        if action == '复制':
+        entries = []
+        if app.get('state') == 'RUNNING':
+            print('正在检查此 CCI 绑定的连接入口…')
+            try:
+                entries = connection_entries(config, workspace, app)
+            except (cli.ConfigError, OSError):
+                print('连接入口查询未完成，请稍后重新选择；仍可进行其他实例操作。')
+        choices = ['返回列表', *(['连接'] if entries else []), '停止', '复制', '删除']
+        action = ui.choose(label(app), choices, default='返回列表')
+        if action == '连接':
+            connect_app(config, workspace, app, entries)
+        elif action == '复制':
             copy_app(config, workspace, app['name'])
         elif action in ('删除', '停止') and ui.confirm(f'确认{action}此 CCI：' + app['name'], action):
             if action == '停止':
@@ -107,7 +175,7 @@ def list_page(config, workspace, plain=False):
 
 
 def main(args):
-    parser = argparse.ArgumentParser(description='CCI 服务：创建、列出并选择停止 / 复制 / 删除。')
+    parser = argparse.ArgumentParser(description='CCI 服务：创建、列出并选择连接 / 停止 / 复制 / 删除。')
     parser.add_argument('action', nargs='?', choices=['create', 'create-last', 'list', 'delete'], default='list')
     parser.add_argument('--workspace', help='本次操作的工作空间，省略则使用已保存的默认工作空间')
     parser.add_argument('--name', help='待删除的 CCI 名称，省略则编号选择')

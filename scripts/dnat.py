@@ -396,7 +396,7 @@ def main(args):
         path = plans.save('dnat', body['name'], body)
         print(label(body))
         print('完整计划：' + str(path))
-        if not options.yes and not ui.confirm('确认创建未绑定的 DNAT 规则', '创建'):
+        if not options.yes and ui.choose('确认创建未绑定的 DNAT 规则', ['提交创建', '取消'], default='提交创建') != '提交创建':
             return 0
         print('正在创建并核实云端状态……', flush=True)
         print('创建已验证：' + label(create_rule(api, body)))

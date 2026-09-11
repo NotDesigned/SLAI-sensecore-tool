@@ -161,5 +161,33 @@
     "target": "registry.cn-sh-01.sensecore.cn/ccr-zhicheng-02/slai-local-sync-check:fb400ef6",
     "digest": "sha256:fc98f7907edfd88a8a523d2f72bf22bbea0cecc5136e4617a6e7fa71cd0c053e",
     "deleted": true
-  }
+  },
+  "upload_picker_validation": {
+    "ui_upload_completed": true,
+    "root_config_unchanged": true,
+    "target": "registry.cn-sh-01.sensecore.cn/ccr-zhicheng-02/slai-upload-picker-check-153028bf:smoke",
+    "digest": "sha256:6bcfa765d17492440c8b469df225e4333f73d18e6faf3568009f47437cf84db7",
+    "deleted": true,
+    "method": "Actual Textual CCR upload button, namespace selection, local Docker tag selection and production push_image; no network or Docker mocks"
+  },
+  "ccr_cache_read_validation": [
+    {
+      "mode": "cloud",
+      "seconds": 27.6567,
+      "total": 611,
+      "status": "云端已更新 · 09-11 23:14:03"
+    },
+    {
+      "mode": "new_page_cache",
+      "seconds": 0.0017,
+      "total": 611,
+      "status": "本地缓存 · 09-11 23:14:03"
+    },
+    {
+      "mode": "new_process_cache",
+      "seconds": 0.0016,
+      "total": 611,
+      "status": "本地缓存 · 09-11 23:14:03"
+    }
+  ]
 }

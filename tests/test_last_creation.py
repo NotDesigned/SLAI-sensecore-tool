@@ -77,3 +77,33 @@ class PreviousUiTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(results)
                 self.assertTrue(draft.submit_requested)
         c.create.assert_not_called()  # The form returns a validated plan to the controller.
+
+class SubmitDefaultTests(unittest.IsolatedAsyncioTestCase):
+    async def test_new_forms_submit_by_default_and_explicit_save_stays_local(self):
+        for kind in ('cci','acp'):
+            for button in ('review','save'):
+                c=client();draft=CreateDraft(kind,c,WS);draft.values['command']='sleep 1'
+                app=SlaiApp();results=[]
+                with patch.object(cli,'menu_title',return_value='SLAI-tool'):
+                    async with app.run_test(size=(80,24)) as pilot:
+                        form=Form(draft);await app.push_screen(form,results.append)
+                        for _ in range(40):
+                            await pilot.pause(.025)
+                            if not form.busy:break
+                        draft.values['network_set']=True
+                        self.assertEqual(str(form.query_one('#review',Button).label),'提交创建')
+                        await pilot.click('#'+button)
+                        for _ in range(40):
+                            await pilot.pause(.025)
+                            if results:break
+                        self.assertTrue(results)
+                        self.assertEqual(draft.submit_requested,button=='review')
+                        self.assertEqual(draft.save_requested,button=='save')
+                c.create.assert_not_called()  # The controller alone performs the mutation.
+
+    def test_text_form_enter_selects_submit(self):
+        draft=Mock(previous=None,title='创建',submit_requested=False,save_requested=False)
+        draft.rows.return_value=[];draft.build.return_value=('checked-plan',)
+        with patch('builtins.input',return_value=''):
+            self.assertEqual(ui.creation_form(draft),('checked-plan',))
+        self.assertTrue(draft.submit_requested);self.assertFalse(draft.save_requested)

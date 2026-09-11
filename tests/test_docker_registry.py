@@ -18,10 +18,12 @@ class DockerRegistryTests(unittest.TestCase):
 
     def test_always_prompts_for_upload_details(self):
         with patch('scripts.ccr.select_upload_namespace', return_value='project') as namespace, \
-             patch('builtins.input', side_effect=['', '', '']) as prompt:
+             patch.object(registry,'select_local_image',return_value='local:v1') as source, \
+             patch('builtins.input', side_effect=['', '']) as prompt:
             with patch.object(registry, 'save_config_updates') as save:
                 self.assertEqual(registry.complete_config(self.config), self.settings)
-        self.assertEqual(prompt.call_count, 3)
+        self.assertEqual(prompt.call_count, 2)
+        source.assert_called_once_with("local:v1")
         namespace.assert_called_once_with(self.config, self.settings['registry'], 'project')
         save.assert_not_called()
 
@@ -29,7 +31,8 @@ class DockerRegistryTests(unittest.TestCase):
         def save(section, updates, original):
             return {'docker': {**original, **updates}}
         with patch('scripts.ccr.select_upload_namespace', return_value='other'), \
-             patch('builtins.input', side_effect=['other:v2', 'next', 'v2']):
+             patch.object(registry,'select_local_image',return_value='other:v2'), \
+             patch('builtins.input', side_effect=['next', 'v2']):
             with patch.object(registry, 'save_config_updates', side_effect=save) as save_call:
                 result = registry.complete_config(self.config)
         self.assertEqual(result['namespace'], 'other')
@@ -95,3 +98,23 @@ class DockerRegistryTests(unittest.TestCase):
             with self.assertRaises(registry.ConfigError):
                 registry.push_image(self.config)
         prompt.assert_not_called()
+
+
+    def test_source_picker_lists_tags_and_prefers_previous_if_present(self):
+        from scripts import cloud,ui
+        with patch.object(cloud,'local_images',return_value=['app:v1','app:v2']), patch.object(ui,'choose',return_value='app:v2') as choose, patch.object(ui,'ask') as ask:
+            self.assertEqual(registry.select_local_image('app:v2'),'app:v2')
+        self.assertEqual(choose.call_args.args[1],['app:v1','app:v2','手动填写镜像名称或 ID'])
+        self.assertEqual(choose.call_args.kwargs['default'],'app:v2');ask.assert_not_called()
+
+    def test_manual_and_empty_local_lists_allow_image_id(self):
+        from scripts import cloud,ui
+        for images in ([],['app:v1']):
+            with patch.object(cloud,'local_images',return_value=images),patch.object(ui,'choose',return_value='手动填写镜像名称或 ID'),patch.object(ui,'ask',return_value='sha256:abc'):
+                self.assertEqual(registry.select_local_image(),'sha256:abc')
+
+    def test_cancelling_source_selection_does_not_save_or_upload(self):
+        from scripts import ui
+        with patch('scripts.ccr.select_upload_namespace',return_value='project'),patch.object(registry,'select_local_image',side_effect=ui.Cancelled),patch.object(registry,'save_config_updates') as save,patch.object(registry,'run_push') as push:
+            with self.assertRaises(ui.Cancelled):registry.complete_config(self.config)
+        save.assert_not_called();push.assert_not_called()

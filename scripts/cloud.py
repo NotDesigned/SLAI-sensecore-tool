@@ -172,7 +172,7 @@ def local_images():
         result = subprocess.run([docker, 'image', 'ls', '--format', '{{json .}}'],
                                 capture_output=True, text=True, timeout=15, encoding='utf-8')
         if result.returncode:
-            print('本地 Docker 镜像列表不可用，可填写远端镜像地址。')
+            print('本地 Docker 镜像列表不可用，请检查 Docker 是否启动，或手动指定镜像。')
             return []
         images = []
         for line in result.stdout.splitlines():
@@ -182,7 +182,7 @@ def local_images():
                 images.append(repository + ':' + tag)
         return sorted(set(images))
     except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
-        print('本地 Docker 镜像列表不可用，可填写远端镜像地址。')
+        print('本地 Docker 镜像列表不可用，请检查 Docker 是否启动，或手动指定镜像。')
         return []
 
 

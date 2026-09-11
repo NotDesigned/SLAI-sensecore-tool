@@ -88,7 +88,7 @@ def create(config, workspace_name=None, reuse_last=False):
         cli.save_config_updates('cci', {'last':draft.snapshot()}, defaults)
         if draft.save_requested:
             return
-        if not draft.submit_requested and ui.choose('下一步', ['仅保存配置', '提交创建'], default='仅保存配置') == '仅保存配置':
+        if not draft.submit_requested and ui.choose('下一步', ['提交创建', '仅保存配置'], default='提交创建') == '仅保存配置':
             return
         draft.sync_image()
         cci_api.create(config, plan)

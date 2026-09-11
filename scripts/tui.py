@@ -67,7 +67,7 @@ class Bridge:
             raise cli.ConfigError(title + '没有可选项，请检查权限和上级选择。')
         back = next((x for x in items if isinstance(x, str) and x in ('返回', '返回列表', '取消')), None)
         choices = [x for x in items if x is not back]
-        context = self.history if isinstance(default, str) and default in ('取消', '仅保存配置') else ''
+        context = self.history if isinstance(default, str) and default in ('取消', '仅保存配置', '提交创建') else ''
         value = self.request(Picker(title, choices, describe, default, back, context))
         if value is None:
             if back is not None:
@@ -336,7 +336,7 @@ class Browser(BackScreen):
         with Horizontal(classes='buttons'):
             yield Button('上一页', id='previous')
             yield Button('下一页', id='next')
-            yield Button('刷新', id='refresh')
+            yield Button(getattr(self.source, 'refresh_label', '刷新'), id='refresh')
             yield Button('0 返回', id='back')
         yield Footer()
 
@@ -373,17 +373,22 @@ class Browser(BackScreen):
                 if button.id.startswith('service-'):
                     button.disabled = False
             table = self.query_one(DataTable)
+            if error:
+                table.disabled = self.page is None
+                if self.page is not None:
+                    self.query_one('#previous', Button).disabled = self.index == 0
+                    self.query_one('#next', Button).disabled = not self.page.more
+                self.query_one('#counter', Static).update(literal(error + (' · 保留上次结果 · ' + getattr(self.source,'status_hint','') if self.page else '') + ' · 刷新重试'))
+                return
             table.clear()
             self.page = page
-            if error:
-                self.query_one('#counter', Static).update(literal(error + ' · 刷新重试'))
-                return
             table.disabled = False
             self.render_rows()
             self.query_one('#counter', Static).update(
                 f'第 {self.index + 1} 页 · 本页 {len(page.rows)} 条' +
                 (f' · 共 {page.total} 条' if page.total is not None else '') +
-                (' · Enter 选择镜像' if self.select_mode else ' · Enter 查看操作'))
+                (' · Enter 选择镜像' if self.select_mode else ' · Enter 查看操作') +
+                (' · ' + self.source.status_hint if getattr(self.source,'status_hint','') else ''))
             self.query_one('#previous', Button).disabled = self.index == 0
             self.query_one('#next', Button).disabled = not page.more
             if not page.rows:
@@ -447,7 +452,13 @@ class Browser(BackScreen):
         if event.button.id.startswith('service-'):
             key = event.button.id.removeprefix('service-')
             _, title, callback = next(action for action in self.actions if action[0] == key)
-            self.app.push_screen(Operation(title, callback), lambda _: self.load(refresh=True))
+            def completed(_):
+                if getattr(self.source, 'reuse_cache_after_action', False):
+                    self.source.snapshot = None
+                    self.load()
+                else:
+                    self.load(refresh=True)
+            self.app.push_screen(Operation(title, callback), completed)
         else:
             getattr(self, 'action_' + event.button.id)()
 
@@ -463,7 +474,7 @@ class Browser(BackScreen):
 
 
 class Form(BackScreen):
-    BINDINGS = [*BackScreen.BINDINGS, ('ctrl+s', 'review', '检查配置')]
+    BINDINGS = [*BackScreen.BINDINGS, ('ctrl+s', 'review', '提交创建')]
 
     def __init__(self, draft):
         super().__init__()
@@ -471,11 +482,12 @@ class Form(BackScreen):
 
     def compose(self) -> ComposeResult:
         yield Static(self.draft.title, classes='heading')
-        yield Static('方向键选择 · Enter 编辑 · 使用默认值可直接检查配置', classes='hint')
+        yield Static('方向键选择 · Enter 编辑 · 填写完成后提交创建；仅保存可使用旁边按钮', classes='hint')
         yield DataTable(cursor_type='row', zebra_stripes=True, id='fields')
         yield Static('', id='status')
         with Horizontal(classes='buttons'):
-            yield Button('提交创建' if self.draft.previous else '检查配置', id='review', variant='primary')
+            yield Button('提交创建', id='review', variant='primary')
+            yield Button('仅保存配置', id='save')
             yield Button('0 返回', id='back')
         yield Footer()
 
@@ -509,12 +521,14 @@ class Form(BackScreen):
         self.query_one('#status', Static).update('正在读取和检查…')
         self.query_one(DataTable).disabled = True
         self.query_one('#review', Button).disabled = True
+        self.query_one('#save', Button).disabled = True
         def finished(result, error):
             self.busy = False
             if not self.is_mounted:
                 return
             self.query_one(DataTable).disabled = False
             self.query_one('#review', Button).disabled = False
+            self.query_one('#save', Button).disabled = False
             self.query_one('#status', Static).update(literal(error or '配置已更新'))
             self.render_fields()
             self.query_one(DataTable).focus()
@@ -527,7 +541,15 @@ class Form(BackScreen):
         self.perform(lambda: self.draft.edit(event.row_key.value))
 
     def action_review(self):
-        self.draft.submit_requested = self.draft.previous is not None
+        if self.busy:
+            return
+        self.draft.submit_requested, self.draft.save_requested = True, False
+        self.perform(self.draft.build, review=True)
+
+    def action_save(self):
+        if self.busy:
+            return
+        self.draft.submit_requested, self.draft.save_requested = False, True
         self.perform(self.draft.build, review=True)
 
     def action_back(self):

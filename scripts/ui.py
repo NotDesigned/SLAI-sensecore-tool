@@ -130,10 +130,10 @@ def creation_form(draft):
     draft.initialize()
     while True:
         rows = draft.rows()
-        actions = ['提交创建' if draft.previous else '检查配置', '仅保存配置', *[label for _,label,_ in rows]]
+        actions = ['提交创建', '仅保存配置', *[label for _,label,_ in rows]]
         for _,label,value in rows:
             output(f'{label}：{value}')
-        selected = choose(draft.title, actions)
+        selected = choose(draft.title, actions, default='提交创建')
         if selected in actions[:2]:
             result = draft.build()
             draft.submit_requested = selected == '提交创建'

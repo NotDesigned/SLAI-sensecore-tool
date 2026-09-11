@@ -44,7 +44,9 @@ def check(config, host, port, timeout=8):
                            for line in data.split(b'\n')[:-1]):
                         return True, 'ssh'
                 return False, 'no_ssh_banner'
-        except (OSError, TimeoutError):
+        except TimeoutError:
+            return False, 'timeout'
+        except OSError:
             return False, 'unreachable'
     executable = network.find_ncat()
     if not executable:
@@ -68,8 +70,10 @@ def check(config, host, port, timeout=8):
         process.stdin.write(PROBE_ID)
         process.stdin.flush()
         return (True, 'ssh') if result.get(timeout=timeout) else (False, 'proxy_failed')
-    except (queue.Empty, OSError):
+    except queue.Empty:
         return False, 'timeout'
+    except OSError:
+        return False, 'proxy_failed'
     finally:
         if process.poll() is None:
             process.kill()
@@ -83,17 +87,30 @@ def check(config, host, port, timeout=8):
 
 
 def report(config, host, port):
-    from scripts import network
-    if network.ncat_args(config, host, port):
+    from scripts import network, ui, cli
+    proxied = bool(network.ncat_args(config, host, port))
+    if proxied:
         network.ensure_ncat()
-    route = '经配置的 SOCKS5 代理' if network.ncat_args(config, host, port) else '直连'
+    route = '经配置的 SOCKS5 代理' if proxied else '直连'
     print(f'正在检查 SSH 入口（{route}，最多约 8 秒）……', flush=True)
     success, reason = check(config, host, port)
     if success:
         print('SSH 入口可达：已收到 SSH 协议响应；尚未验证公钥登录。')
-    elif reason == 'ncat_missing':
-        print('未能检查：本机缺少 ncat。' + network.ncat_install_hint())
+        return True
+    if reason == 'ncat_missing':
+        message = '未能检查：本机缺少 ncat。' + network.ncat_install_hint()
     else:
-        print('SSH 入口暂不可达或未收到 SSH 响应。可能未处于 SLAI 内网，请参照 README 的“SLAI 内网代理”配置 config.toml。')
-        print('若已配置代理，请检查代理可用性；也请确认 CCI 已运行、sshd 已启动及 DNAT 绑定正确。')
-    return success
+        message = 'SSH 连接超时。' if reason == 'timeout' else 'SSH 入口暂不可达或未收到 SSH 响应。'
+        if proxied:
+            message += '\n已经使用配置的 SOCKS5 代理，请检查代理地址、端口、账号密码和代理的内网访问能力。'
+        else:
+            message += ('\n可能未处于 SLAI 内网，请在 config.toml 中添加 SOCKS5 代理后重试。'
+                        '\n代理信息请向管理员获取，参照 README 的“SLAI 内网代理”。'
+                        '\n\n[network.socks5]\nserver = ""\nport = 1080\nusername = ""\npassword = ""'
+                        '\n\n如果配置中已有这个表，直接填写现有字段，不要重复添加。')
+        message += '\n也请确认 CCI 已运行、sshd 已启动及 DNAT 绑定正确；连接失败不一定由代理造成。'
+    print(message)
+    if ui.active():
+        ui.show_text('SSH 连接检查未通过', message,
+                     hint='配置文件：' + str(cli.CONFIG) + '。保存后重新检查；下一页仍可复制 SSH 命令。')
+    return False

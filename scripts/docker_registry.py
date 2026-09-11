@@ -41,6 +41,19 @@ def ask(label, default=''):
         print(f'{label} 不能为空。')
 
 
+def select_local_image(default=''):
+    from scripts import cloud, ui
+    print('正在读取本地 Docker 镜像…')
+    images = cloud.local_images()
+    manual = '手动填写镜像名称或 ID'
+    if not images:
+        print('没有可列出的本地标签。请确认 Docker 已启动且已构建或拉取镜像，也可手动填写镜像 ID。')
+        return ui.ask('本地镜像（名称:标签或 ID）', default)
+    preferred = default if default in images else images[0]
+    selected = ui.choose('选择本地 Docker 镜像（可搜索名称或标签）', [*images, manual], default=preferred)
+    return ui.ask('本地镜像（名称:标签或 ID）', default) if selected == manual else selected
+
+
 def complete_config(config):
     original = config.get('docker', {})
     if not isinstance(original, dict):
@@ -52,8 +65,8 @@ def complete_config(config):
     from scripts.ccr import select_upload_namespace
     settings['namespace'] = select_upload_namespace(config, settings['registry'], string_value(settings, 'namespace'))
     # Last-used values are defaults, never a reason to skip per-upload choices.
-    for key, label in (('source_image', '本地镜像（名称:标签或 ID）'),
-                       ('image_name', '目标镜像名称'), ('tag', '目标镜像标签')):
+    settings['source_image'] = select_local_image(string_value(settings, 'source_image'))
+    for key, label in (('image_name', '目标镜像名称'), ('tag', '目标镜像标签')):
         default = string_value(settings, key) or ('latest' if key == 'tag' else '')
         settings[key] = ask(label, default)
     validate(settings)
@@ -210,6 +223,8 @@ def sync_image(config, plan):
         code, _ = run_push(docker, target, env)
     if code:
         raise ConfigError(f'镜像同步失败（退出码 {code}），未创建任务。')
+    from scripts.ccr_cache import invalidate
+    invalidate(config, plan['registry'], plan['namespace'])
     print('镜像同步完成：' + target)
     return target
 
@@ -240,4 +255,6 @@ def push_image(config):
         code, _ = run_push(docker, target, env)
     if code:
         raise ConfigError(f'Docker push 失败（退出码 {code}）。')
+    from scripts.ccr_cache import invalidate
+    invalidate(config, settings['registry'], settings['namespace'])
     print(f'镜像上传完成：{target}')

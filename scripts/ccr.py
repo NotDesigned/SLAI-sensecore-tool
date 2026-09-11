@@ -8,6 +8,7 @@ from scripts import cli, rest, ui
 from scripts.rest import get_json
 from scripts.ui import Cancelled, choose
 from scripts.docker_registry import push_image
+from scripts.listing import LocalSource
 
 
 def pages(config, base, field, *, camel=False):
@@ -65,6 +66,47 @@ def image_references(row):
     return [repository + ':' + tag for tag in tags] or [repository + '（无标签）']
 
 
+class RepositorySource(LocalSource):
+    def __init__(self, config, namespace, *, images=False):
+        self.config, self.namespace, self.images = config, namespace, images
+        self.force_refresh = False
+        self.status_hint = ''
+        super().__init__(self.read,
+            str if images else lambda row: ' '.join(image_references(row)),
+            columns=('镜像与标签',) if images else ('镜像仓库','标签数'),
+            cells=(lambda ref:(ref.split('/',2)[-1],)) if images else
+                  (lambda row:(row['name'],str(len(row.get('tags',[]))))))
+        self.search_hint = '输入镜像名或标签，Enter 搜索'
+        self.loading_hint = '正在读取镜像；缓存未命中或更新云端时可能需要 30–120 秒'
+        self.refresh_after_action = False
+        self.reuse_cache_after_action = True
+        self.refresh_label = '更新云端'
+
+    def read(self):
+        from datetime import datetime
+        from scripts import ccr_cache
+        rows, timestamp, cached = ccr_cache.load(self.config,self.namespace,
+            lambda: repositories(self.config,self.namespace),refresh=self.force_refresh)
+        self.status_hint = ('本地缓存' if cached else '云端已更新') + ' · ' + datetime.fromtimestamp(timestamp).strftime('%m-%d %H:%M:%S')
+        if not self.images:
+            return rows
+        refs=[]
+        for row in rows:
+            values=image_references(row)
+            if row.get('tags'):
+                if not row.get('domain'):
+                    raise cli.ConfigError('CCR 镜像缺少 Registry 地址，请刷新重试。')
+                refs.extend(values)
+        return sorted(set(refs))
+
+    def page(self, index, size, query='', state='', refresh=False):
+        self.force_refresh = refresh
+        try:
+            return super().page(index,size,query,state,refresh)
+        finally:
+            self.force_refresh = False
+
+
 class ImageCatalog:
     """One creation draft's accessible namespaces and searchable tag snapshots."""
     def __init__(self, config):
@@ -72,25 +114,9 @@ class ImageCatalog:
         self.sources = {}
 
     def source(self, namespace):
-        from scripts.listing import LocalSource
         key = tuple(namespace.get(k) for k in ('region', 'subscription_name', 'resource_group_name', 'zone', 'name'))
         if key not in self.sources:
-            def fetch():
-                refs = []
-                for row in repositories(self.config, namespace):
-                    values = image_references(row)
-                    # Untagged repositories remain visible in CCR management,
-                    # but have no pullable tag to select in a creation form.
-                    if row.get('tags'):
-                        if not row.get('domain'):
-                            raise cli.ConfigError('CCR 镜像缺少 Registry 地址，请刷新重试。')
-                        refs.extend(values)
-                return sorted(set(refs))
-            source = LocalSource(fetch, columns=('镜像与标签',),
-                                 cells=lambda ref: (ref.split('/', 2)[-1],))
-            source.search_hint = '输入镜像名或标签，Enter 搜索'
-            source.loading_hint = '正在读取 CCR 镜像；首次或刷新可能需要 30–120 秒'
-            self.sources[key] = source
+            self.sources[key] = RepositorySource(self.config, namespace, images=True)
         return self.sources[key]
 
     def select(self, default=''):
@@ -108,8 +134,8 @@ class ImageCatalog:
 
 
 def list_images(config, namespace_name=None, plain=False):
-    available = namespaces(config)
     if namespace_name:
+        available = namespaces(config)
         matches = [row for row in available if row['name'] == namespace_name]
         if len(matches) != 1:
             raise cli.ConfigError('命名空间不存在或名称不唯一，请使用交互选择。')
@@ -120,18 +146,13 @@ def list_images(config, namespace_name=None, plain=False):
             lambda n: list_images(config, n['name']), plain=plain,
             actions=(('upload','上传镜像',lambda: push_image(cli.load_config())),))
     print(f"范围：可访问命名空间 {namespace['name']} 内的镜像（不代表由当前用户创建）。", flush=True)
-    print('正在通过 REST 查询；接口可能一次返回全部仓库，最多等待 120 秒……', flush=True)
+    source = RepositorySource(config, namespace)
     if ui.active() and not plain:
-        from scripts.listing import LocalSource
-        source = LocalSource(lambda: repositories(config, namespace),
-            lambda row: ' '.join(image_references(row)),
-            columns=('镜像仓库', '标签数'),
-            cells=lambda row: (row['name'], str(len(row.get('tags', [])))))
-        source.refresh_after_action = False
         return ui.backend().browse('CCR · ' + namespace['name'] + ' · 可访问镜像', source,
             lambda row: ui.show_text(row['name'], '\n'.join(image_references(row))),
             actions=(('upload','上传镜像',lambda: push_image(cli.load_config())),))
-    rows = repositories(config, namespace)
+    rows = source.read()
+    print(source.status_hint)
     for index, row in enumerate(rows, 1):
         print(f"{index}. " + ' | '.join(image_references(row)))
     print(f"共 {len(rows)} 个可访问镜像仓库。")
