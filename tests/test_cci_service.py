@@ -1,5 +1,6 @@
 import contextlib
 import io
+import os
 import unittest
 from unittest.mock import Mock, patch
 
@@ -118,7 +119,8 @@ class CciServiceTests(unittest.TestCase):
                 self.assertEqual(len(files), 1)
                 import yaml
                 self.assertEqual(yaml.safe_load(files[0].read_text())['display_name'], 'new-copy')
-                self.assertEqual(files[0].stat().st_mode & 0o777, 0o600)
+                if os.name != 'nt':
+                    self.assertEqual(files[0].stat().st_mode & 0o777, 0o600)
                 if submit:
                     create.assert_called_once()
                     plan = create.call_args.args[1]

@@ -28,13 +28,21 @@ class ProxyTests(unittest.TestCase):
         config = {'cci': {}, 'network': {'socks5': {'server': '192.0.2.2', 'username': 'user', 'password': 'test%h'}}}
         with patch.object(sys, 'argv', ['proxy', '192.0.2.1', '22']), \
              patch.object(shutil, 'which', return_value='/ncat'), \
-             patch.object(cli, 'load_config', return_value=config), patch.object(os, 'execv') as execute:
+             patch.object(cli, 'load_config', return_value=config), patch.object(os, 'execv') as execute, \
+             patch.object(subprocess, 'run') as run:
             ncat_proxy.main()
-        executable, args = execute.call_args.args
+        if sys.platform == 'win32':
+            execute.assert_not_called()
+            args = run.call_args.args[0]
+            self.assertEqual(run.call_args.kwargs, {'check': False})
+            executable = args[0]
+        else:
+            executable, args = execute.call_args.args
         self.assertEqual(executable, '/ncat')
         self.assertEqual(args[args.index('--proxy-auth') + 1], 'user:test%h')
         self.assertEqual(args[-2:], ['192.0.2.1', '22'])
 
+    @unittest.skipIf(sys.platform == 'win32', 'POSIX percent escaping; Windows rejection covered by test_windows')
     def test_generated_command_handles_percent_and_spaces_in_paths(self):
         import shlex
         defaults = {'network': {'socks5': {'server': '192.0.2.2'}}}

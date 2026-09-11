@@ -1,4 +1,5 @@
 import io
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -57,7 +58,7 @@ class AccountErrorTests(unittest.TestCase):
         with patch.object(cli.sys, 'platform', 'win32'), patch.object(cli.sys, 'stdout', stream):
             ui.output('中文测试')
         stream.flush()
-        self.assertEqual(raw.getvalue().decode('utf-8'), '中文测试\n')
+        self.assertEqual(raw.getvalue().decode('utf-8'), '中文测试' + os.linesep)
 
 
 class AccountErrorUiTests(unittest.IsolatedAsyncioTestCase):

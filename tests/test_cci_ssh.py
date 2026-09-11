@@ -61,7 +61,8 @@ class SshTests(unittest.TestCase):
         proxy = network.ncat_args(defaults, '192.0.2.1', '39587')
         self.assertEqual(proxy[proxy.index('--proxy-auth') + 1], "user:space ' $() %h")
         self.assertEqual(proxy[-2:], ['192.0.2.1', '39587'])
-        self.assertEqual(cci_ssh.connection_command({}, '192.0.2.1', 22), 'ssh -p 22 root@192.0.2.1')
+        from scripts.commands import format_command
+        self.assertEqual(cci_ssh.connection_command({}, '192.0.2.1', 22), format_command(['ssh', '-p', '22', 'root@192.0.2.1']))
 
     def test_linux_install_hint_and_single_command_output(self):
         import platform
@@ -75,10 +76,11 @@ class SshTests(unittest.TestCase):
             cci_ssh.show_connection(defaults, '192.0.2.1', 39587, 'app')
         text = output.getvalue()
         self.assertIn('install ncat', text)
-        self.assertIn('ssh -p 39587', text)
+        expected = cci_ssh.connection_command(defaults, '192.0.2.1', 39587)
+        self.assertIn(expected, text)
         self.assertIn('ncat_proxy.py', text)
         self.assertNotIn('Host slai-app', text)
-        self.assertEqual(text.count('ssh -p 39587'), 1)
+        self.assertEqual(text.count(expected), 1)
 
     def test_display_hides_credentials_and_proxy_reads_config(self):
         from scripts.ncat_proxy import proxy_args
