@@ -107,13 +107,18 @@ class HomeSettingsUiTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn('认证通过',str(app.query_one('#proxy-status',Static).render()))
                 for button,action in [('home-account','configure'),('home-workspace','workspace')]:
                     await pilot.click('#'+button)
-                    for _ in range(40):
+                    for _ in range(100):
                         await pilot.pause(.025)
                         if isinstance(app.screen,Operation) and app.screen.done:break
+                    self.assertTrue(isinstance(app.screen,Operation) and app.screen.done)
                     execute.assert_called_with(action)
                     await pilot.press('0')
+                    for _ in range(100):
+                        await pilot.pause(.025)
+                        if len(app.screen_stack)==1:break
+                    self.assertEqual(len(app.screen_stack),1)
                 await pilot.click('#home-proxy')
-                for _ in range(40):
+                for _ in range(100):
                     await pilot.pause(.025)
                     if configure.called and len(app.screen_stack)==1:break
                 configure.assert_called_once()
