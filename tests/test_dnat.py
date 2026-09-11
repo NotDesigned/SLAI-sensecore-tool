@@ -31,7 +31,7 @@ class DnatTests(unittest.TestCase):
         api.request.assert_not_called()
 
     def setUp(self):
-        self.api = dnat.Api({'sco': {}}, {'name': 'eip', 'region': 'cn-sh-01', 'zone': 'cn-sh-01e',
+        self.api = dnat.Api({'account': {}}, {'name': 'eip', 'region': 'cn-sh-01', 'zone': 'cn-sh-01e',
             'id': 'eip-id', 'subscription_name': 'sub', 'resource_group_name': 'default',
             'properties': {'association_id': 'gateway'}})
         self.body = {'name': 'test', 'creator_id': '11111111-1111-4111-8111-111111111111',
@@ -198,9 +198,10 @@ class DnatTests(unittest.TestCase):
         show.assert_called_once()
 
     def test_binding_changed_target_stops_before_mutation(self):
-        from scripts import cci_network
+        from scripts import cci_network, cci_api
         client = Mock()
-        client.read.return_value = json.dumps({'uid': 'replacement'})
+        self.addCleanup(patch.stopall)
+        patch.object(cci_api,'owned',return_value={'uid':'replacement'}).start()
         with patch.object(dnat, 'Api') as api:
             with self.assertRaises(cli.ConfigError):
                 cci_network.attach_dnat({}, client, 'ws', 'app', {'expected_uid': 'original'})

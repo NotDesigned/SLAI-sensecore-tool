@@ -1,5 +1,7 @@
 """Create, list and delete DNAT rules with HTTP and read-back validation."""
+from scripts.ui import output as print
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import re
 import secrets
@@ -16,7 +18,7 @@ from scripts.ui import Cancelled, choose, ask
 
 class Api:
     def __init__(self, config, eip):
-        self.credentials = config['sco']
+        self.credentials = config['account']
         self.eip = eip
         region = eip.get('region', '')
         if not re.fullmatch(r'cn-[a-z]+-\d+', region):
@@ -30,15 +32,19 @@ class Api:
 
     def request(self, method, suffix='', body=None, *, identity=False):
         url = 'https://iam.sensecoreapi.cn/iam/idp/v1/me' if identity else self.base + suffix
-        return rest.request_json({'sco': self.credentials}, url, method=method, body=body)
+        return rest.request_json({'account': self.credentials}, url, method=method, body=body)
 
     def current_user_id(self):
         data = self.request('GET', identity=True)
         return rest.identity_id(data)
 
-    def list(self):
+    def list(self, creator_id=None):
+        query = {'page_size': 100}
+        if creator_id is not None:
+            rest.identity_id({'id': creator_id})
+            query['filter'] = "creator_id='" + creator_id + "'"
         rows = rest.pages(lambda token: self.request('GET', '?' + urllib.parse.urlencode(
-            {'page_size': 100, 'page_token': token})), 'dnat_rules')
+            {**query, 'page_token': token})), 'dnat_rules')
         return [row for row in rows if not row.get('deleted')]
 
 
@@ -244,7 +250,7 @@ def show_rule(api, expected):
     if (not isinstance(detail, dict) or detail.get('uid') != row.get('uid')
             or detail.get('creator_id') != row.get('creator_id') or detail.get('deleted')):
         raise cli.ConfigError('规则详情归属或身份不匹配，未展示。')
-    print(json.dumps(detail, indent=2, ensure_ascii=False))
+    ui.show_text('DNAT 详情', json.dumps(detail, indent=2, ensure_ascii=False))
 
 
 def label(row):
@@ -264,17 +270,21 @@ def all_my_rules(config, eip_name=None):
         eips = [eip for eip in eips if eip['name'] == eip_name]
         if len(eips) != 1:
             raise cli.ConfigError('EIP 名称不存在或不唯一。')
-    result = []
-    user_id = None
-    for eip in eips:
-        api = Api(config, eip)
-        if user_id is None:
-            user_id = api.current_user_id()
-        # Do not silently return a partial list when an EIP query fails.
-        for row in api.list():
-            if not row.get('deleted') and row.get('creator_id') == user_id:
-                result.append((api, row))
-    return sorted(result, key=lambda item: (label(item[1]), item[0].base))
+    if not eips:
+        return []
+    apis = [Api(config, eip) for eip in eips]
+    user_id = apis[0].current_user_id()
+
+    def read_owned(api):
+        # Filtering is only for this owner list. Port conflict checks call list()
+        # without a creator filter so other users' allocations remain visible.
+        return [(api, row) for row in api.list(creator_id=user_id)
+                if not row.get('deleted') and row.get('creator_id') == user_id]
+
+    with ThreadPoolExecutor(max_workers=min(3, len(apis))) as executor:
+        pages = list(executor.map(read_owned, apis))
+    # Propagate any failure rather than presenting a partial aggregate as complete.
+    return sorted([entry for page in pages for entry in page], key=lambda item: (label(item[1]), item[0].base))
 
 
 def bind_existing_cci(config, api, row):
@@ -343,20 +353,18 @@ def list_page(config, eip_name=None, plain=False):
         elif action == '查看详情':
             show_rule(api, row)
     return ui.browse('我的 DNAT', lambda: all_my_rules(config, eip_name),
-                     lambda entry: label(entry[1]), selected, plain=plain)
+                     lambda entry: label(entry[1]), selected, plain=plain, actions=(
+                         ('create','创建 DNAT',lambda: main(['create'] + (['--eip',eip_name] if eip_name else []))),))
 
 
 def main(args):
     parser = argparse.ArgumentParser(description='DNAT 规则管理：创建、列出、绑定已有 CCI、解绑、删除。')
-    parser.add_argument('action', nargs='?', choices=['create', 'list', 'delete'])
+    parser.add_argument('action', nargs='?', choices=['create', 'list', 'delete'], default='list')
     parser.add_argument('--eip', help='可选 EIP 范围；创建时省略则编号选择，列表默认汇总全部')
     parser.add_argument('--plain', action='store_true', help='仅打印列表，不进入规则操作页面')
     parser.add_argument('--name', help='待删除规则名称；省略则编号选择')
     parser.add_argument('--yes', action='store_true', help='跳过创建/删除确认；删除已绑定规则会先解绑')
     options = parser.parse_args(args)
-    if not options.action:
-        from scripts.ui import menu
-        return menu('DNAT 服务', main, actions=(('create', '创建'), ('list', '列出（选择规则操作）')))
     config = cli.load_config()
     try:
         action = options.action

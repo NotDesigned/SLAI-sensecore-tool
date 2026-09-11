@@ -1,4 +1,5 @@
 """Public-key-only SSH bootstrap for root Ubuntu CCI containers."""
+from scripts.ui import output as print
 from pathlib import Path
 import shlex
 import subprocess
@@ -107,11 +108,16 @@ def show_connection(config, host, port, name):
     command = connection_command(config, host, port)
     from scripts.ssh_probe import report
     report(config, host, port)
+    from scripts import ui
+    if ui.active():
+        ui.show_text('SSH 连接命令', command, hint='终端可直接执行。VS Code：先选择 Remote-SSH: Add New SSH Host… 添加此命令，再用 Connect to Host… 选择保存的主机。')
+        return
     if sys.platform == 'win32':
         print('\nSSH 连接命令（PowerShell 7.3+ 复制执行）：\n' + command)
         print('Windows PowerShell 5.1 的嵌套引号行为不同，请在 PowerShell 7.3+ 执行。')
     else:
         print('\nSSH 连接命令（复制执行）：\n' + command)
-    print('同一命令可用于 VS Code Remote SSH；请确保 VS Code 使用本机 OpenSSH 和相同项目路径。')
+    print('VS Code：在 Remote-SSH: Add New SSH Host… 中粘贴此命令，保存后再通过 Connect to Host… 选择主机。')
+    print('Connect to Host… 的主机输入框只接受主机名或 user@host，不能直接粘贴整条命令。')
     print('非默认私钥请在命令中加 -i，或在 SSH 配置中加 IdentityFile。')
     print('连接信息已生成；实际可用性仍需 SSH 登录验证。')

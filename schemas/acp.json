@@ -1,0 +1,563 @@
+{
+  "required": [
+    "display_name",
+    "framework",
+    "roles",
+    "resource_pool"
+  ],
+  "type": "object",
+  "properties": {
+    "subscription_name": {
+      "readOnly": true,
+      "type": "string",
+      "description": "订阅"
+    },
+    "resource_group_name": {
+      "readOnly": true,
+      "type": "string",
+      "description": "资源组"
+    },
+    "zone": {
+      "readOnly": true,
+      "type": "string",
+      "description": "可用区. 工作空间可用区，一般为region+z，例如：上海的region为cn-sh-01，工作空间的可用区则为cn-sh-01z"
+    },
+    "workspace_name": {
+      "readOnly": true,
+      "type": "string",
+      "description": "工作空间名称"
+    },
+    "name": {
+      "maxLength": 63,
+      "minLength": 1,
+      "type": "string",
+      "description": "可选,任务名称. 不填写，则由后台默认随机生成. 若填入,则需要遵循以下规范: 1、1～63个字符 2、小写字母开头，小写字母或数字结尾 3、可包含小写英文字母、数字、中划线-"
+    },
+    "uid": {
+      "readOnly": true,
+      "type": "string",
+      "description": "任务唯一标识"
+    },
+    "display_name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string",
+      "description": "任务显示名称. 需遵循规范: 1、1-256个字符 2、以中文字符、英文字母或数字开头 3、由中文字符、英文字母、数字、点号\".\"、半角冒号\":\"、下划线“_\"和连字符\"-\"组成"
+    },
+    "id": {
+      "readOnly": true,
+      "type": "string",
+      "description": "任务资源id"
+    },
+    "ownership": {
+      "readOnly": true,
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "user_name": {
+              "readOnly": true,
+              "type": "string",
+              "description": "用户名"
+            },
+            "user_id": {
+              "readOnly": true,
+              "type": "string",
+              "description": "用户id. 请求创建任务的用户id"
+            },
+            "requestor_id": {
+              "readOnly": true,
+              "type": "string",
+              "description": "发起请求者/第三方发起者"
+            },
+            "tenant_id": {
+              "readOnly": true,
+              "type": "string",
+              "description": "租户id"
+            }
+          },
+          "description": "所有权关系. 只输出,请求无需传入",
+          "title": "Ownership"
+        }
+      ],
+      "description": "所有权关系. 只输出,请求无需传入"
+    },
+    "framework": {
+      "enum": [
+        "FRAMEWORK_UNSPECIFIED",
+        "MPI",
+        "PYTORCH",
+        "PYTORCH_DDP",
+        "TENSORFLOW",
+        "TENSORFLOW_PS",
+        "SENSEPARROTS",
+        "SENSEPARROTS_DDP"
+      ],
+      "type": "string",
+      "description": "框架类型",
+      "format": "enum"
+    },
+    "roles": {
+      "type": "array",
+      "items": {
+        "required": [
+          "name",
+          "resource_spec",
+          "startup_script",
+          "image_path"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "角色名. 当前只支持填写Worker"
+          },
+          "resource_spec": {
+            "type": "array",
+            "items": {
+              "required": [
+                "name"
+              ],
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "资源规格名称. 根据资源规格列表获取. 例: N2lS.Ie.I60.2"
+                },
+                "replicas": {
+                  "type": "integer",
+                  "description": "请求调度副本数. 当前规格所需 worker 的数量. 当前不支持手动强异构调度，暂不支持",
+                  "format": "int32"
+                },
+                "description": {
+                  "readOnly": true,
+                  "type": "string",
+                  "description": "规格描述. 例: 1xA100-80GB"
+                },
+                "limits": {
+                  "readOnly": true,
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "资源列表. key值: CPU(cpu)、内存(memory)、设备数量(device)"
+                },
+                "requests": {
+                  "readOnly": true,
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "资源列表. key值: CPU(cpu)、内存(memory)、设备数量(device)"
+                }
+              },
+              "description": "资源规格",
+              "title": "ResourceSpec"
+            },
+            "description": "资源规格"
+          },
+          "total_replicas": {
+            "type": "integer",
+            "description": "总副本. 所需 worker 的数量. 选择自动弱异构调度或者单规格时，total_replicas 必传",
+            "format": "int32"
+          },
+          "startup_script": {
+            "type": "string",
+            "description": "启动脚本"
+          },
+          "image_path": {
+            "type": "string",
+            "description": "镜像真实uri path"
+          }
+        },
+        "description": "任务角色",
+        "title": "Role"
+      },
+      "description": "角色. 当前仅支持填写单个role"
+    },
+    "env": {
+      "type": "array",
+      "items": {
+        "required": [
+          "key",
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "key"
+          },
+          "value": {
+            "type": "string",
+            "description": "value"
+          }
+        },
+        "description": "环境变量配置",
+        "title": "EnvVal"
+      },
+      "description": "可选,环境变量配置,最多支持10个"
+    },
+    "mount": {
+      "type": "array",
+      "items": {
+        "required": [
+          "type",
+          "id",
+          "mount_path"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "MOUNT_TYPE_UNSPECIFIED",
+              "PV_AFS",
+              "PV_ACS",
+              "PV_AFS_MODEL",
+              "PV_AFS_TENSORBOARD"
+            ],
+            "type": "string",
+            "description": "挂载类型",
+            "format": "enum"
+          },
+          "id": {
+            "type": "string",
+            "description": "卷 ID"
+          },
+          "mount_path": {
+            "type": "string",
+            "description": "挂载路径"
+          },
+          "subdir": {
+            "type": "string",
+            "description": "卷内的子目录"
+          },
+          "zone": {
+            "type": "string",
+            "description": "可用区"
+          },
+          "endpoint": {
+            "type": "string",
+            "description": "端点"
+          }
+        },
+        "description": "卷挂载",
+        "title": "VolumeMount"
+      },
+      "description": "卷挂载"
+    },
+    "tensorboard": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "log_path": {
+              "type": "string",
+              "description": "开启tensorboard之后的日志路径，需要与任一存储卷挂载路径保持一致. 是否开启tensorboard，根据路径值来判断"
+            }
+          },
+          "description": "TensorBoard配置",
+          "title": "TensorboardOpt"
+        }
+      ],
+      "description": "tensorboard配置"
+    },
+    "scheduling": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "priority": {
+              "enum": [
+                "PRIORITY_UNSPECIFIED",
+                "NORMAL",
+                "HIGH",
+                "HIGHEST"
+              ],
+              "type": "string",
+              "description": "调度优先级, 默认为 NORMAL",
+              "format": "enum"
+            },
+            "quota_type": {
+              "enum": [
+                "JOB_QUOTA_TYPE_UNSPECIFIED",
+                "RESERVED",
+                "SPOT"
+              ],
+              "type": "string",
+              "description": "配额类型，默认为 RESERVED。      仅当集群开启闲时配额，才支持创建 SPOT 任务；",
+              "format": "enum"
+            },
+            "scoring_strategy": {
+              "allOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "enum": [
+                        "MOST_ALLOCATED",
+                        "LEAST_ALLOCATED"
+                      ],
+                      "type": "string",
+                      "description": "评分策略类型",
+                      "format": "enum"
+                    }
+                  },
+                  "description": "评分策略",
+                  "title": "ScoringStrategy"
+                }
+              ],
+              "description": "评分策略"
+            }
+          },
+          "description": "调度",
+          "title": "Scheduling"
+        }
+      ],
+      "description": "调度"
+    },
+    "resource_pool": {
+      "allOf": [
+        {
+          "required": [
+            "name"
+          ],
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "资源名称. 例: 集群名称、预留配额名称等,需要和资源类型对应上"
+            },
+            "display_name": {
+              "readOnly": true,
+              "type": "string",
+              "description": "资源展示名称"
+            },
+            "zone": {
+              "type": "string",
+              "description": "公共集群的可用区,仅当使用公共集群创建任务时,需要传入,内容要与vpc_id对应上"
+            },
+            "vpc_id": {
+              "type": "string",
+              "description": "vpc id. 使用公共集群创建任务时,需要指定vpc的id"
+            }
+          },
+          "description": "资源池",
+          "title": "ResourcePool"
+        }
+      ],
+      "description": "弹性集群名称"
+    },
+    "state": {
+      "readOnly": true,
+      "enum": [
+        "STATE_UNSPECIFIED",
+        "WAITING",
+        "INIT",
+        "QUEUEING",
+        "CREATING",
+        "STARTING",
+        "RUNNING",
+        "RESTARTING",
+        "SUSPENDING",
+        "SUSPENDED",
+        "SUCCEEDED",
+        "FAILED",
+        "DELETING",
+        "DELETED",
+        "RECOVERING"
+      ],
+      "type": "string",
+      "description": "任务状态",
+      "format": "enum"
+    },
+    "root_mapping": {
+      "readOnly": true,
+      "type": "boolean",
+      "description": "挂载的文件存储是否以root权限读写"
+    },
+    "fault_tolerance": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "backoff_limit": {
+              "maximum": 2147483647,
+              "minimum": -1,
+              "type": "integer",
+              "description": "标记任务失败前的最大重试次数。-1表示无限重试",
+              "format": "int32"
+            },
+            "rules": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "enum": [
+                      "RESTART_JOB",
+                      "RESTART_POD",
+                      "FAIL_JOB"
+                    ],
+                    "type": "string",
+                    "description": "Pod 失败后的处理行为",
+                    "format": "enum"
+                  },
+                  "exit_codes": {
+                    "maxLength": 1024,
+                    "type": "string",
+                    "description": "退出码匹配规则。范围1-255。支持以下格式： \"99\"，\"99,101-255\"，\"99,100\"，\"99-101\"，\"161-250,251,252-255\"， \"251,252-255,161\"等。 若设置了 exit_codes，当 Pod 失败且其退出码匹配时，将执行对应 action。 若同时设置了 mark_node_unschedulable，且退出码匹配，反亲和逻辑也将触发。 若未设置 exit_codes，则无论退出码为何都会执行 action，但不会触发反亲和策略"
+                  },
+                  "mark_node_unschedulable": {
+                    "type": "boolean",
+                    "description": "标记节点不可调度。注意：如果没有可用节点（由于资源限制或节点回避策略过严），新建的Pod可能会无 限期处于Pending状态"
+                  }
+                },
+                "description": "PodFailurePolicyRule 定义了在特定条件下如何处理 Pod 失败。 以下为常见配置示例： - 默认配置（未设置 fault_tolerance）： fault_tolerance:   backoff_limit: 0   rules:   - exit_codes: \"1-255\"     action: RestartJob  # 可选: RestartPod, RestartJob, FailJob - 总是重启任务： fault_tolerance:   backoff_limit: -1 等价于： fault_tolerance:   backoff_limit: -1   rules:   - exit_codes: \"1-255\"     action: RestartJob - 总是重启 Pod（推荐用于 Ray 框架）： fault_tolerance:   backoff_limit: -1   rules:   - exit_codes: \"1-255\"     action: RestartPod     # 注意：PyTorch 任务中任一 worker 失败会导致整个任务失败，     # 需结合 Ray 等框架在代码中妥善处理 Pod 失败。 - 有限次重试： fault_tolerance:   backoff_limit: 99  # 正整数   rules:   - exit_codes: \"1-255\"     action: RestartPod 或 RestartJob - 节点规避策略： fault_tolerance:   backoff_limit: 99   rules:   - exit_codes: \"254,255\"     mark_node_unschedulable: true     action: RestartPod 或 RestartJob - 组合规则示例： fault_tolerance:   backoff_limit: 99   rules:   - exit_codes: \"254,255\"     mark_node_unschedulable: true     action: RestartPod   - exit_codes: \"1-100,199\"     action: RestartJob",
+                "title": "PodFailurePolicyRule"
+              },
+              "description": "Pod 失败后的处理策略：用于定义在满足条件时如何处理失败的 Pod。 最多允许填写 20 条规则。 规则按顺序评估，一旦匹配某条规则，将忽略其后的规则； 若无规则匹配，则默认行为为重启整个任务（restartJob）"
+            }
+          },
+          "description": "容错配置（任务重试与Pod失败处理）",
+          "title": "FaultTolerance"
+        }
+      ],
+      "description": "容错配置（任务重试与 Pod 失败处理）"
+    },
+    "ssh": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "auto_key_setup": {
+              "type": "boolean",
+              "description": "是否自动配置容器间的 SSH 免密登录。      注意：MPI 任务将忽略此配置并强制启用免密登录"
+            },
+            "config_mount_path": {
+              "type": "string",
+              "description": "SSH 配置文件挂载路径。      启用 SSH 免密登录后，可自定义配置路径。      默认路径：`/sensecore/compute/acp/ssh/ssh_config/`"
+            }
+          },
+          "description": "用于容器间通信的 SSH 配置",
+          "title": "SSH"
+        }
+      ],
+      "description": "SSH 配置"
+    },
+    "barrier": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "enable_ethernet_ping": {
+              "type": "boolean",
+              "description": "是否启用以太网 ping 检查。      - 当设置为 false 时：跳过以太网 ping 检查。      - 当未设置或设置为 true 时：启用以太网 ping 检查（默认行为）"
+            },
+            "enable_roce_mesh_ping": {
+              "type": "boolean",
+              "description": "是否启用 RoCE 网络的 mesh ping 检查。      - 当设置为 false 时：跳过 RoCE 网络的 mesh ping 检查。      - 当未设置或设置为 true 时：启用 RoCE 网络的 mesh ping      检查（默认行为）。      注意：RoCE mesh ping 检查依赖以太网 ping 检查，当以太网 ping           检查被禁用时，RoCE mesh ping 将不会生效"
+            }
+          },
+          "description": "Barrier 配置，作为训练任务的初始化容器（init container）。      充当任务启动过程中的屏障机制，确保各节点在启动与运行过程中能够稳定通信和同步。      - 当 barrier 内所有字段均为 false 时：表示禁用        barrier，将跳过所有检查（不创建 init container）。      - 当 barrier 内所有字段均未设置或均为 true 时：表示启用        barrier（默认行为）",
+          "title": "Barrier"
+        }
+      ],
+      "description": "Barrier 配置，作为训练任务的初始化容器（init container）。      充当任务启动过程中的屏障机制，确保各节点在启动与运行过程中能够稳定通信和同步。      - 当 barrier 内所有字段均为 false 时：表示禁用        barrier，将跳过所有检查（不创建 init container）。      - 当 barrier 内所有字段均未设置或均为 true 时：表示启用        barrier（默认行为）。      注意：仅在分布式任务中此配置才会生效"
+    },
+    "create_time": {
+      "readOnly": true,
+      "type": "string",
+      "description": "创建时间",
+      "format": "date-time"
+    },
+    "start_time": {
+      "readOnly": true,
+      "type": "string",
+      "description": "最近一次启动时间",
+      "format": "date-time"
+    },
+    "suspend_time": {
+      "readOnly": true,
+      "type": "string",
+      "description": "停止时间",
+      "format": "date-time"
+    },
+    "update_time": {
+      "readOnly": true,
+      "type": "string",
+      "description": "更新时间",
+      "format": "date-time"
+    },
+    "complete_time": {
+      "readOnly": true,
+      "type": "string",
+      "description": "完成时间",
+      "format": "date-time"
+    },
+    "delete_time": {
+      "readOnly": true,
+      "type": "string",
+      "description": "删除时间",
+      "format": "date-time"
+    },
+    "fine_tuning_specs": {
+      "type": "string",
+      "description": "[beta]模型微调配置项[json string]"
+    },
+    "async_checkpoint": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "max_ckpt_rounds": {
+              "type": "integer",
+              "description": "最大缓存轮数",
+              "format": "int32"
+            }
+          },
+          "description": "[beta]AsyncCheckpoint. 是否开启，根据最大缓存轮数来判断",
+          "title": "AsyncCheckpoint"
+        }
+      ],
+      "description": "[beta] checkpoint 异步加速"
+    },
+    "lme": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "enable_warmingup": {
+              "type": "boolean",
+              "description": "[beta]任务运行前是否开启环境诊断"
+            },
+            "max_retries": {
+              "type": "integer",
+              "description": "[beta]配置重试最大次数",
+              "format": "int32"
+            },
+            "enable_health_monitor": {
+              "type": "boolean",
+              "description": "[beta]是否开启健康检测"
+            },
+            "current_retries": {
+              "readOnly": true,
+              "type": "integer",
+              "description": "[beta]当前重试次数. 默认为0",
+              "format": "int32"
+            },
+            "enable_checker": {
+              "type": "boolean",
+              "description": "[beta]任务运行后是否开启环境诊断"
+            }
+          },
+          "description": "[beta]大模型可配置项",
+          "title": "LME"
+        }
+      ],
+      "description": "[beta] 已弃用字段：lme。请改用 `fault_tolerance` 字段"
+    }
+  },
+  "description": "训练任务",
+  "title": "TrainingJob"
+}

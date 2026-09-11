@@ -1,0 +1,165 @@
+{
+  "prefix": "slai-rest-1d9cd6b3",
+  "events": [
+    {
+      "event": "preflight",
+      "time": "21:52:45",
+      "cpu": 2,
+      "memory_gib": 4,
+      "accelerators": 0
+    },
+    {
+      "event": "cci_created",
+      "time": "21:52:48",
+      "uid": "02bd266914a249babe5faa9d19750303"
+    },
+    {
+      "event": "acp_created",
+      "time": "21:52:50",
+      "uid": "905884c5aeb64191808f3776a8f265b6"
+    },
+    {
+      "event": "cci_wait",
+      "time": "21:52:50",
+      "name": "slai-rest-1d9cd6b3-cci",
+      "state": "PROGRESSING"
+    },
+    {
+      "event": "acp_wait",
+      "time": "21:53:02",
+      "name": "slai-rest-1d9cd6b3-acp",
+      "state": "STARTING"
+    },
+    {
+      "event": "source_resources_running",
+      "time": "21:53:05"
+    },
+    {
+      "event": "dnat_created",
+      "time": "21:53:39",
+      "port": "60102"
+    },
+    {
+      "event": "ssh_login_afs_verified",
+      "time": "21:53:43",
+      "target_uid": "02bd266914a249babe5faa9d19750303",
+      "port": "60102"
+    },
+    {
+      "event": "cci_copy_created",
+      "time": "21:53:46",
+      "uid": "41d10a4185e544b7afcd1ee9dfbeb92b"
+    },
+    {
+      "event": "acp_copy_created",
+      "time": "21:53:47",
+      "uid": "03c67f038c1d4679988bae7ecd1df50a"
+    },
+    {
+      "event": "cci_wait",
+      "time": "21:53:48",
+      "name": "slai-rest-1d9cd6b3-cci-copy",
+      "state": "PROGRESSING"
+    },
+    {
+      "event": "acp_wait",
+      "time": "21:54:03",
+      "name": "slai-rest-1d9cd6b3-acp-copy",
+      "state": "QUEUEING"
+    },
+    {
+      "event": "acp_wait",
+      "time": "21:54:37",
+      "name": "slai-rest-1d9cd6b3-acp-copy",
+      "state": "QUEUEING"
+    },
+    {
+      "event": "ssh_login_afs_verified",
+      "time": "21:55:13",
+      "target_uid": "41d10a4185e544b7afcd1ee9dfbeb92b",
+      "port": "60102"
+    },
+    {
+      "event": "dnat_migration_verified",
+      "time": "21:55:13"
+    },
+    {
+      "event": "acp_stopped",
+      "time": "21:55:52"
+    },
+    {
+      "event": "acp-copy_stopped",
+      "time": "21:56:29"
+    },
+    {
+      "event": "cci_stopped",
+      "time": "21:56:44"
+    },
+    {
+      "event": "cci-copy_stopped",
+      "time": "21:57:00"
+    },
+    {
+      "event": "dnat_cleaned",
+      "time": "21:57:17"
+    },
+    {
+      "event": "acp-copy_cleaned",
+      "time": "21:57:19"
+    },
+    {
+      "event": "cci-copy_cleaned",
+      "time": "21:57:24"
+    },
+    {
+      "event": "acp_cleaned",
+      "time": "21:57:25"
+    },
+    {
+      "event": "cci_cleaned",
+      "time": "21:57:31"
+    },
+    {
+      "event": "original_rules_and_config_unchanged",
+      "time": "21:57:31"
+    }
+  ],
+  "uids": {
+    "cci": "02bd266914a249babe5faa9d19750303",
+    "acp": "905884c5aeb64191808f3776a8f265b6",
+    "dnat": "d66c3bcf-aa59-4727-a1fb-aa0cd4f010d4",
+    "cci-copy": "41d10a4185e544b7afcd1ee9dfbeb92b",
+    "acp-copy": "03c67f038c1d4679988bae7ecd1df50a"
+  },
+  "cleaned": [
+    "dnat",
+    "acp-copy",
+    "cci-copy",
+    "acp",
+    "cci"
+  ],
+  "errors": [],
+  "lifecycle_passed": true,
+  "date": "2026-09-11",
+  "image": {
+    "target": "registry.cn-sh-01.sensecore.cn/ccr-zhicheng-02/slai-cci-pytorch-ssh:25.06-20260911",
+    "pushed": true,
+    "method": "registry-v2",
+    "digest": "sha256:73d41984e6948661a039da17149112b923e6705526ee5a41866e49e2cc12a8d5",
+    "config_digest": "sha256:f90b4eddc5d9cbd4e6a77a6d4d5925ea22815fc90a3d304f78c3012f4a97d043"
+  },
+  "tests": {
+    "total": 205,
+    "passed": 203,
+    "skipped_native_windows": 2
+  },
+  "local_image_sync": {
+    "target": "registry.cn-sh-01.sensecore.cn/ccr-zhicheng-02/slai-local-sync-check:fb400ef6",
+    "pushed": true
+  },
+  "local_image_cleanup": {
+    "target": "registry.cn-sh-01.sensecore.cn/ccr-zhicheng-02/slai-local-sync-check:fb400ef6",
+    "digest": "sha256:fc98f7907edfd88a8a523d2f72bf22bbea0cecc5136e4617a6e7fa71cd0c053e",
+    "deleted": true
+  }
+}

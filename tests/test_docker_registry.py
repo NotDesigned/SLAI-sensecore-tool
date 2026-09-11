@@ -17,16 +17,19 @@ class DockerRegistryTests(unittest.TestCase):
         self.config = {'docker': self.settings}
 
     def test_always_prompts_for_upload_details(self):
-        with patch('builtins.input', side_effect=['', '', '', '']) as prompt:
+        with patch('scripts.ccr.select_upload_namespace', return_value='project') as namespace, \
+             patch('builtins.input', side_effect=['', '', '']) as prompt:
             with patch.object(registry, 'save_config_updates') as save:
                 self.assertEqual(registry.complete_config(self.config), self.settings)
-        self.assertEqual(prompt.call_count, 4)
+        self.assertEqual(prompt.call_count, 3)
+        namespace.assert_called_once_with(self.config, self.settings['registry'], 'project')
         save.assert_not_called()
 
     def test_new_details_are_saved(self):
         def save(section, updates, original):
             return {'docker': {**original, **updates}}
-        with patch('builtins.input', side_effect=['other', 'other:v2', 'next', 'v2']):
+        with patch('scripts.ccr.select_upload_namespace', return_value='other'), \
+             patch('builtins.input', side_effect=['other:v2', 'next', 'v2']):
             with patch.object(registry, 'save_config_updates', side_effect=save) as save_call:
                 result = registry.complete_config(self.config)
         self.assertEqual(result['namespace'], 'other')

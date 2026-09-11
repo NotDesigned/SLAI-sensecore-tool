@@ -1,4 +1,5 @@
 """Bounded, unauthenticated SSH banner check over the configured route."""
+from scripts.ui import output as print
 import queue
 import socket
 import subprocess
@@ -83,6 +84,8 @@ def check(config, host, port, timeout=8):
 
 def report(config, host, port):
     from scripts import network
+    if network.ncat_args(config, host, port):
+        network.ensure_ncat()
     route = '经配置的 SOCKS5 代理' if network.ncat_args(config, host, port) else '直连'
     print(f'正在检查 SSH 入口（{route}，最多约 8 秒）……', flush=True)
     success, reason = check(config, host, port)
@@ -91,6 +94,6 @@ def report(config, host, port):
     elif reason == 'ncat_missing':
         print('未能检查：本机缺少 ncat。' + network.ncat_install_hint())
     else:
-        print('SSH 入口暂不可达或未收到 SSH 响应。可能未处于 SLAI 内网，请参照 README 的“需要 SOCKS5 代理时”配置 config.toml。')
+        print('SSH 入口暂不可达或未收到 SSH 响应。可能未处于 SLAI 内网，请参照 README 的“SLAI 内网代理”配置 config.toml。')
         print('若已配置代理，请检查代理可用性；也请确认 CCI 已运行、sshd 已启动及 DNAT 绑定正确。')
     return success

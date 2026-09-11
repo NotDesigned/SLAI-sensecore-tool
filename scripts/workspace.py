@@ -1,4 +1,5 @@
 """Shared, explicitly saved workspace selection for workspace-scoped services."""
+from scripts.ui import output as print
 
 from scripts import ui, cloud, cli
 
@@ -7,6 +8,8 @@ FIELDS = ('name', 'region', 'subscription_name', 'resource_group_name', 'zone')
 
 def select(client, explicit=None, force=False):
     rows = client.resources('compute.workspace.v1.instance')
+    if not rows:
+        raise cli.ConfigError('当前账户没有可访问的工作空间。请联系 SLAI 管理员授权，或通过主菜单 1 切换账户后重试。')
     if explicit:
         matches = [row for row in rows if row.get('name') == explicit]
         if len(matches) != 1:
@@ -21,10 +24,10 @@ def select(client, explicit=None, force=False):
         matches = [row for row in rows if all(row.get(k) == saved.get(k) for k in FIELDS)
                    and (not saved.get('id') or (row.get('uid') or row.get('id')) == saved['id'])]
     if not force and len(matches) == 1:
-        print('默认工作空间：' + cloud.resource_label(matches[0]) + '（主菜单 7 可切换）')
+        print('默认工作空间：' + cloud.resource_label(matches[0]) + '（主菜单 2 可切换）')
         return matches[0]
     if not force and saved.get('name'):
-        print('保存的工作空间不可用或范围已变化，请重新选择；主菜单 7 可更新默认值。')
+        print('保存的工作空间不可用或范围已变化，请重新选择；主菜单 2 可更新默认值。')
     return ui.choose('工作空间', rows, cloud.resource_label,
                       default=matches[0] if len(matches) == 1 else None)
 

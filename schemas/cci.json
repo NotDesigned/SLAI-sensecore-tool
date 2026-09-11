@@ -1,0 +1,1025 @@
+{
+  "required": [
+    "display_name",
+    "resource_pool",
+    "scheduling"
+  ],
+  "type": "object",
+  "properties": {
+    "name": {
+      "maxLength": 63,
+      "minLength": 1,
+      "type": "string",
+      "description": "应用名称。不填写，则由后台默认随机生成。若填入，则需要遵循以下规范： 1. 1～63 个字符。 2. 小写字母开头，小写字母或数字结尾。 3. 可包含小写英文字母、数字、中划线（-）"
+    },
+    "display_name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string",
+      "description": "应用显示名称。填写需要遵循以下规则： 1. 1～256 个字符。 2. 以中文字符、英文字母或数字开头。 3. 由中文字符、英文字母、数字、点号（.）、半角冒号（:）、下划线（_）和 连字符（-）组成"
+    },
+    "uid": {
+      "readOnly": true,
+      "type": "string",
+      "description": "应用唯一标识"
+    },
+    "id": {
+      "readOnly": true,
+      "type": "string",
+      "description": "应用 ID"
+    },
+    "ownership": {
+      "readOnly": true,
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "user_name": {
+              "readOnly": true,
+              "type": "string",
+              "description": "用户名"
+            },
+            "user_id": {
+              "readOnly": true,
+              "type": "string",
+              "description": "用户 ID"
+            },
+            "tenant_id": {
+              "readOnly": true,
+              "type": "string",
+              "description": "租户 ID"
+            },
+            "requestor_id": {
+              "readOnly": true,
+              "type": "string",
+              "description": "发起请求者或第三方发起者的 ID"
+            }
+          },
+          "description": "所有权关系",
+          "title": "Ownership"
+        }
+      ],
+      "description": "所有权关系"
+    },
+    "template": {
+      "allOf": [
+        {
+          "required": [
+            "containers",
+            "resource_spec"
+          ],
+          "type": "object",
+          "properties": {
+            "init_containers": {
+              "type": "array",
+              "items": {
+                "required": [
+                  "image_path",
+                  "resource_request"
+                ],
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "容器名称"
+                  },
+                  "image_path": {
+                    "type": "string",
+                    "description": "镜像地址"
+                  },
+                  "command": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "容器命令列表。命令不会在 shell 中运行，传统的 shell 指令（如 '|'）无效。如果需要使用 shell，需显式调用。 注意：当前端请求（通过 x-ui-valid 头标识）时，系统会自动将命令包装为 [\"bash\", \"-c\", ...原始命令...] 以支持 shell 语法。非前端请求保持原始格式"
+                  },
+                  "env": {
+                    "type": "array",
+                    "items": {
+                      "required": [
+                        "name",
+                        "value",
+                        "need_mosaic"
+                      ],
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "maxLength": 255,
+                          "type": "string",
+                          "description": "环境变量名称。 可以包含字母(A-Z, a-z)、数字(0-9)、下划线(_)、点(.)或短横线(-)， 但第一个字符不能是数字。参考: https://kubernetes.io/docs/tasks/inject-data-application/define-environment-variable-container/"
+                        },
+                        "value": {
+                          "type": "string",
+                          "description": "环境变量值"
+                        },
+                        "need_mosaic": {
+                          "type": "boolean",
+                          "description": "是否需要马赛克处理"
+                        }
+                      },
+                      "description": "环境变量",
+                      "title": "EnvVar"
+                    },
+                    "description": "容器环境变量列表"
+                  },
+                  "resource_request": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "容器资源请求。如果为空，则使用资源规格中的默认值"
+                  },
+                  "volume_mounts": {
+                    "type": "array",
+                    "items": {
+                      "required": [
+                        "type"
+                      ],
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "enum": [
+                            "MOUNT_TYPE_UNSPECIFIED",
+                            "PV_AFS",
+                            "CONFIGMAP",
+                            "SECRET",
+                            "PV_ACS",
+                            "PV_AOSS"
+                          ],
+                          "type": "string",
+                          "description": "挂载类型",
+                          "format": "enum"
+                        },
+                        "name": {
+                          "type": "string",
+                          "description": "卷名称"
+                        },
+                        "mount_path": {
+                          "type": "string",
+                          "description": "挂载路径"
+                        },
+                        "id": {
+                          "type": "string",
+                          "description": "卷 ID"
+                        },
+                        "volume_capacity": {
+                          "type": "string",
+                          "description": "卷容量"
+                        },
+                        "subdir": {
+                          "type": "string",
+                          "description": "指定挂载卷下的子目录"
+                        },
+                        "zone": {
+                          "type": "string",
+                          "description": "可用区"
+                        },
+                        "endpoint": {
+                          "type": "string",
+                          "description": "挂载卷的 endpoint"
+                        },
+                        "mount_options": {
+                          "type": "string",
+                          "description": "挂载选项。当前仅支持通过 GeeseFS 挂载 AOSS 时的相关配置。 示例：--no-preload-dir --uid=1000 其中 no-preload-dir 表示关闭预加载功能，uid=1000 表示设置文件所有者为用户ID1000"
+                        }
+                      },
+                      "description": "卷挂载",
+                      "title": "VolumeMount"
+                    },
+                    "description": "卷挂载"
+                  },
+                  "liveness_probe": {
+                    "allOf": [
+                      {
+                        "required": [
+                          "probe_type"
+                        ],
+                        "type": "object",
+                        "properties": {
+                          "probe_type": {
+                            "enum": [
+                              "PROBE_TYPE_UNSPECIFIED",
+                              "EXEC",
+                              "HTTP_GET"
+                            ],
+                            "type": "string",
+                            "description": "探针类型，目前仅支持 exec 类型",
+                            "format": "enum"
+                          },
+                          "exec": {
+                            "allOf": [
+                              {
+                                "required": [
+                                  "command"
+                                ],
+                                "type": "object",
+                                "properties": {
+                                  "command": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "description": "使用命令行方式进行健康检查时，在容器内执行的命令。该命令不会在 shell 中运行，因此传统的 shell 指令（如 '|'）无效。如果需要使用 shell，需显式调用。退出状态码为 0 表示存活/健康，非 0 表示不健康"
+                                  }
+                                },
+                                "description": "命令行探针",
+                                "title": "Exec"
+                              }
+                            ],
+                            "description": "命令行探针"
+                          },
+                          "initial_delay_seconds": {
+                            "type": "integer",
+                            "description": "首次检测延迟时间（秒），从容器启动完成开始计算",
+                            "format": "int32"
+                          },
+                          "period_seconds": {
+                            "type": "integer",
+                            "description": "检测间隔时间（秒），默认为 10 秒，最小值为 1 秒",
+                            "format": "int32"
+                          },
+                          "timeout_seconds": {
+                            "minimum": 1,
+                            "type": "integer",
+                            "description": "探测超时时间（秒），默认为 1 秒，最小值为 1 秒",
+                            "format": "int32"
+                          },
+                          "failure_threshold": {
+                            "minimum": 1,
+                            "type": "integer",
+                            "description": "探测失败的阈值，连续失败次数达到该值后认为探针失败，默认为 3， 最小值为 1",
+                            "format": "int32"
+                          }
+                        },
+                        "description": "探针",
+                        "title": "Probe"
+                      }
+                    ],
+                    "description": "存活探针"
+                  },
+                  "readiness_probe": {
+                    "allOf": [
+                      {
+                        "required": [
+                          "probe_type"
+                        ],
+                        "type": "object",
+                        "properties": {
+                          "probe_type": {
+                            "enum": [
+                              "PROBE_TYPE_UNSPECIFIED",
+                              "EXEC",
+                              "HTTP_GET"
+                            ],
+                            "type": "string",
+                            "description": "探针类型，目前仅支持 exec 类型",
+                            "format": "enum"
+                          },
+                          "exec": {
+                            "allOf": [
+                              {
+                                "required": [
+                                  "command"
+                                ],
+                                "type": "object",
+                                "properties": {
+                                  "command": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "description": "使用命令行方式进行健康检查时，在容器内执行的命令。该命令不会在 shell 中运行，因此传统的 shell 指令（如 '|'）无效。如果需要使用 shell，需显式调用。退出状态码为 0 表示存活/健康，非 0 表示不健康"
+                                  }
+                                },
+                                "description": "命令行探针",
+                                "title": "Exec"
+                              }
+                            ],
+                            "description": "命令行探针"
+                          },
+                          "initial_delay_seconds": {
+                            "type": "integer",
+                            "description": "首次检测延迟时间（秒），从容器启动完成开始计算",
+                            "format": "int32"
+                          },
+                          "period_seconds": {
+                            "type": "integer",
+                            "description": "检测间隔时间（秒），默认为 10 秒，最小值为 1 秒",
+                            "format": "int32"
+                          },
+                          "timeout_seconds": {
+                            "minimum": 1,
+                            "type": "integer",
+                            "description": "探测超时时间（秒），默认为 1 秒，最小值为 1 秒",
+                            "format": "int32"
+                          },
+                          "failure_threshold": {
+                            "minimum": 1,
+                            "type": "integer",
+                            "description": "探测失败的阈值，连续失败次数达到该值后认为探针失败，默认为 3， 最小值为 1",
+                            "format": "int32"
+                          }
+                        },
+                        "description": "探针",
+                        "title": "Probe"
+                      }
+                    ],
+                    "description": "就绪探针"
+                  },
+                  "metadata": {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "key": {
+                                  "type": "string",
+                                  "description": "元数据条目的键"
+                                },
+                                "value": {
+                                  "type": "string",
+                                  "description": "元数据条目的值"
+                                }
+                              },
+                              "description": "元数据项",
+                              "title": "Item"
+                            },
+                            "description": "键值对数组"
+                          }
+                        },
+                        "description": "元数据",
+                        "title": "Metadata"
+                      }
+                    ],
+                    "description": "元数据。      支持的元数据键:      - access_key: 访问密钥 ID。      - secret_key: 明文私密密钥 (与 encrypted_secret_key 二选一)。      - encrypted_secret_key: 加密后的私密密钥 (JWE A256GCM 加密格式)，        安全存储场景下优先使用该字段替代明文 secret_key"
+                  }
+                },
+                "description": "容器",
+                "title": "Container"
+              },
+              "description": "初始化容器列表"
+            },
+            "containers": {
+              "type": "array",
+              "items": {
+                "required": [
+                  "image_path",
+                  "resource_request"
+                ],
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "容器名称"
+                  },
+                  "image_path": {
+                    "type": "string",
+                    "description": "镜像地址"
+                  },
+                  "command": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "容器命令列表。命令不会在 shell 中运行，传统的 shell 指令（如 '|'）无效。如果需要使用 shell，需显式调用。 注意：当前端请求（通过 x-ui-valid 头标识）时，系统会自动将命令包装为 [\"bash\", \"-c\", ...原始命令...] 以支持 shell 语法。非前端请求保持原始格式"
+                  },
+                  "env": {
+                    "type": "array",
+                    "items": {
+                      "required": [
+                        "name",
+                        "value",
+                        "need_mosaic"
+                      ],
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "maxLength": 255,
+                          "type": "string",
+                          "description": "环境变量名称。 可以包含字母(A-Z, a-z)、数字(0-9)、下划线(_)、点(.)或短横线(-)， 但第一个字符不能是数字。参考: https://kubernetes.io/docs/tasks/inject-data-application/define-environment-variable-container/"
+                        },
+                        "value": {
+                          "type": "string",
+                          "description": "环境变量值"
+                        },
+                        "need_mosaic": {
+                          "type": "boolean",
+                          "description": "是否需要马赛克处理"
+                        }
+                      },
+                      "description": "环境变量",
+                      "title": "EnvVar"
+                    },
+                    "description": "容器环境变量列表"
+                  },
+                  "resource_request": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "容器资源请求。如果为空，则使用资源规格中的默认值"
+                  },
+                  "volume_mounts": {
+                    "type": "array",
+                    "items": {
+                      "required": [
+                        "type"
+                      ],
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "enum": [
+                            "MOUNT_TYPE_UNSPECIFIED",
+                            "PV_AFS",
+                            "CONFIGMAP",
+                            "SECRET",
+                            "PV_ACS",
+                            "PV_AOSS"
+                          ],
+                          "type": "string",
+                          "description": "挂载类型",
+                          "format": "enum"
+                        },
+                        "name": {
+                          "type": "string",
+                          "description": "卷名称"
+                        },
+                        "mount_path": {
+                          "type": "string",
+                          "description": "挂载路径"
+                        },
+                        "id": {
+                          "type": "string",
+                          "description": "卷 ID"
+                        },
+                        "volume_capacity": {
+                          "type": "string",
+                          "description": "卷容量"
+                        },
+                        "subdir": {
+                          "type": "string",
+                          "description": "指定挂载卷下的子目录"
+                        },
+                        "zone": {
+                          "type": "string",
+                          "description": "可用区"
+                        },
+                        "endpoint": {
+                          "type": "string",
+                          "description": "挂载卷的 endpoint"
+                        },
+                        "mount_options": {
+                          "type": "string",
+                          "description": "挂载选项。当前仅支持通过 GeeseFS 挂载 AOSS 时的相关配置。 示例：--no-preload-dir --uid=1000 其中 no-preload-dir 表示关闭预加载功能，uid=1000 表示设置文件所有者为用户ID1000"
+                        }
+                      },
+                      "description": "卷挂载",
+                      "title": "VolumeMount"
+                    },
+                    "description": "卷挂载"
+                  },
+                  "liveness_probe": {
+                    "allOf": [
+                      {
+                        "required": [
+                          "probe_type"
+                        ],
+                        "type": "object",
+                        "properties": {
+                          "probe_type": {
+                            "enum": [
+                              "PROBE_TYPE_UNSPECIFIED",
+                              "EXEC",
+                              "HTTP_GET"
+                            ],
+                            "type": "string",
+                            "description": "探针类型，目前仅支持 exec 类型",
+                            "format": "enum"
+                          },
+                          "exec": {
+                            "allOf": [
+                              {
+                                "required": [
+                                  "command"
+                                ],
+                                "type": "object",
+                                "properties": {
+                                  "command": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "description": "使用命令行方式进行健康检查时，在容器内执行的命令。该命令不会在 shell 中运行，因此传统的 shell 指令（如 '|'）无效。如果需要使用 shell，需显式调用。退出状态码为 0 表示存活/健康，非 0 表示不健康"
+                                  }
+                                },
+                                "description": "命令行探针",
+                                "title": "Exec"
+                              }
+                            ],
+                            "description": "命令行探针"
+                          },
+                          "initial_delay_seconds": {
+                            "type": "integer",
+                            "description": "首次检测延迟时间（秒），从容器启动完成开始计算",
+                            "format": "int32"
+                          },
+                          "period_seconds": {
+                            "type": "integer",
+                            "description": "检测间隔时间（秒），默认为 10 秒，最小值为 1 秒",
+                            "format": "int32"
+                          },
+                          "timeout_seconds": {
+                            "minimum": 1,
+                            "type": "integer",
+                            "description": "探测超时时间（秒），默认为 1 秒，最小值为 1 秒",
+                            "format": "int32"
+                          },
+                          "failure_threshold": {
+                            "minimum": 1,
+                            "type": "integer",
+                            "description": "探测失败的阈值，连续失败次数达到该值后认为探针失败，默认为 3， 最小值为 1",
+                            "format": "int32"
+                          }
+                        },
+                        "description": "探针",
+                        "title": "Probe"
+                      }
+                    ],
+                    "description": "存活探针"
+                  },
+                  "readiness_probe": {
+                    "allOf": [
+                      {
+                        "required": [
+                          "probe_type"
+                        ],
+                        "type": "object",
+                        "properties": {
+                          "probe_type": {
+                            "enum": [
+                              "PROBE_TYPE_UNSPECIFIED",
+                              "EXEC",
+                              "HTTP_GET"
+                            ],
+                            "type": "string",
+                            "description": "探针类型，目前仅支持 exec 类型",
+                            "format": "enum"
+                          },
+                          "exec": {
+                            "allOf": [
+                              {
+                                "required": [
+                                  "command"
+                                ],
+                                "type": "object",
+                                "properties": {
+                                  "command": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "description": "使用命令行方式进行健康检查时，在容器内执行的命令。该命令不会在 shell 中运行，因此传统的 shell 指令（如 '|'）无效。如果需要使用 shell，需显式调用。退出状态码为 0 表示存活/健康，非 0 表示不健康"
+                                  }
+                                },
+                                "description": "命令行探针",
+                                "title": "Exec"
+                              }
+                            ],
+                            "description": "命令行探针"
+                          },
+                          "initial_delay_seconds": {
+                            "type": "integer",
+                            "description": "首次检测延迟时间（秒），从容器启动完成开始计算",
+                            "format": "int32"
+                          },
+                          "period_seconds": {
+                            "type": "integer",
+                            "description": "检测间隔时间（秒），默认为 10 秒，最小值为 1 秒",
+                            "format": "int32"
+                          },
+                          "timeout_seconds": {
+                            "minimum": 1,
+                            "type": "integer",
+                            "description": "探测超时时间（秒），默认为 1 秒，最小值为 1 秒",
+                            "format": "int32"
+                          },
+                          "failure_threshold": {
+                            "minimum": 1,
+                            "type": "integer",
+                            "description": "探测失败的阈值，连续失败次数达到该值后认为探针失败，默认为 3， 最小值为 1",
+                            "format": "int32"
+                          }
+                        },
+                        "description": "探针",
+                        "title": "Probe"
+                      }
+                    ],
+                    "description": "就绪探针"
+                  },
+                  "metadata": {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "key": {
+                                  "type": "string",
+                                  "description": "元数据条目的键"
+                                },
+                                "value": {
+                                  "type": "string",
+                                  "description": "元数据条目的值"
+                                }
+                              },
+                              "description": "元数据项",
+                              "title": "Item"
+                            },
+                            "description": "键值对数组"
+                          }
+                        },
+                        "description": "元数据",
+                        "title": "Metadata"
+                      }
+                    ],
+                    "description": "元数据。      支持的元数据键:      - access_key: 访问密钥 ID。      - secret_key: 明文私密密钥 (与 encrypted_secret_key 二选一)。      - encrypted_secret_key: 加密后的私密密钥 (JWE A256GCM 加密格式)，        安全存储场景下优先使用该字段替代明文 secret_key"
+                  }
+                },
+                "description": "容器",
+                "title": "Container"
+              },
+              "description": "容器列表"
+            },
+            "resource_spec": {
+              "allOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "资源规格名称，例如：N2lS.Ie.I60.2"
+                    },
+                    "description": {
+                      "readOnly": true,
+                      "type": "string",
+                      "description": "规格描述，例如：1xA100-80GB"
+                    },
+                    "limits": {
+                      "readOnly": true,
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "资源限制列表，键值包括：CPU(cpu)、内存(memory)、设备数量(device)"
+                    },
+                    "requests": {
+                      "readOnly": true,
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "资源请求列表，键值包括：CPU(cpu)、内存(memory)、设备数量(device)"
+                    }
+                  },
+                  "description": "资源规格",
+                  "title": "ResourceSpec"
+                }
+              ],
+              "description": "计算资源规格"
+            }
+          },
+          "description": "实例模板",
+          "title": "InstanceTemplate"
+        }
+      ],
+      "description": "实例模板"
+    },
+    "elastic_scaling": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "elastic_scaling_on_time": {
+              "maxItems": 10,
+              "type": "array",
+              "items": {
+                "required": [
+                  "name",
+                  "cycle",
+                  "start_time",
+                  "action",
+                  "replicas_change_each_time"
+                ],
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "按时间弹性伸缩策略名称"
+                  },
+                  "display_name": {
+                    "type": "string",
+                    "description": "按时间弹性伸缩策略显示名称"
+                  },
+                  "id": {
+                    "type": "string",
+                    "description": "按时间弹性伸缩策略 ID"
+                  },
+                  "uid": {
+                    "type": "string",
+                    "description": "按时间弹性伸缩策略 UID"
+                  },
+                  "type": {
+                    "readOnly": true,
+                    "enum": [
+                      "SCALING_TYPE_UNSPECIFIED",
+                      "MANUAL_SCALING",
+                      "ELASTIC_SCALING_ON_TIME"
+                    ],
+                    "type": "string",
+                    "description": "按时间弹性伸缩策略类型，目前是 elastic_scaling_on_time，以后可能扩展其他类型",
+                    "format": "enum"
+                  },
+                  "cycle": {
+                    "enum": [
+                      "STRATEGY_CYCLE_UNSPECIFIED",
+                      "STRATEGY_CYCLE_ONCE",
+                      "STRATEGY_CYCLE_EVERYDAY",
+                      "STRATEGY_CYCLE_SUNDAY",
+                      "STRATEGY_CYCLE_MONDAY",
+                      "STRATEGY_CYCLE_TUESDAY",
+                      "STRATEGY_CYCLE_WEDNESDAY",
+                      "STRATEGY_CYCLE_THURSDAY",
+                      "STRATEGY_CYCLE_FRIDAY",
+                      "STRATEGY_CYCLE_SATURDAY"
+                    ],
+                    "type": "string",
+                    "description": "策略执行周期",
+                    "format": "enum"
+                  },
+                  "start_time": {
+                    "type": "string",
+                    "description": "策略开始时间",
+                    "format": "date-time"
+                  },
+                  "end_time": {
+                    "type": "string",
+                    "description": "策略结束时间",
+                    "format": "date-time"
+                  },
+                  "action": {
+                    "enum": [
+                      "ACTION_TYPE_UNSPECIFIED",
+                      "SCALE_IN",
+                      "SCALE_OUT"
+                    ],
+                    "type": "string",
+                    "description": "执行动作，分为横向扩容和横向缩容",
+                    "format": "enum"
+                  },
+                  "replicas_change_each_time": {
+                    "maximum": 128,
+                    "type": "integer",
+                    "description": "每次改变的副本数",
+                    "format": "int32"
+                  },
+                  "create_time": {
+                    "readOnly": true,
+                    "type": "string",
+                    "description": "按时间弹性伸缩策略创建时间",
+                    "format": "date-time"
+                  }
+                },
+                "description": "按时间弹性伸缩策略",
+                "title": "ElasticScalingOnTime"
+              },
+              "description": "按时间弹性伸缩策略集合（Beta 版本）"
+            }
+          },
+          "description": "弹性伸缩",
+          "title": "ElasticScaling"
+        }
+      ],
+      "description": "弹性伸缩配置（Beta 版本）"
+    },
+    "resource_pool": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "资源名称"
+            },
+            "display_name": {
+              "type": "string",
+              "description": "资源显示名称"
+            },
+            "vpc_id": {
+              "type": "string",
+              "description": "虚拟私有云，选择公共集群时必填"
+            },
+            "available_zone": {
+              "type": "string",
+              "description": "应用实际可用区，选择公共集群时必填"
+            }
+          },
+          "description": "资源池",
+          "title": "ResourcePool"
+        }
+      ],
+      "description": "资源池"
+    },
+    "scheduling": {
+      "allOf": [
+        {
+          "required": [
+            "priority"
+          ],
+          "type": "object",
+          "properties": {
+            "priority": {
+              "enum": [
+                "PRIORITY_UNSPECIFIED",
+                "NORMAL",
+                "HIGH",
+                "HIGHEST"
+              ],
+              "type": "string",
+              "description": "优先级，默认为 NORMAL 优先级",
+              "format": "enum"
+            },
+            "quota_type": {
+              "enum": [
+                "QUOTA_TYPE_UNSPECIFIED",
+                "RESERVED",
+                "SPOT"
+              ],
+              "type": "string",
+              "description": "可选，配额类型，默认为 Reserved",
+              "format": "enum"
+            },
+            "hints": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "模型缓存调度的提示信息"
+            },
+            "instance_affinity": {
+              "enum": [
+                "POD_AFFINITY_TYPE_UNSPECIFIED",
+                "POD_AFFINITY",
+                "POD_ANITAFFINITY"
+              ],
+              "type": "string",
+              "description": "副本亲和与反亲和，公共集群不可用",
+              "format": "enum"
+            },
+            "scoring_strategy": {
+              "allOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "enum": [
+                        "MOST_ALLOCATED",
+                        "LEAST_ALLOCATED"
+                      ],
+                      "type": "string",
+                      "description": "评分策略类型",
+                      "format": "enum"
+                    }
+                  },
+                  "description": "评分策略",
+                  "title": "ScoringStrategy"
+                }
+              ],
+              "description": "评分策略"
+            }
+          },
+          "description": "调度",
+          "title": "Scheduling"
+        }
+      ],
+      "description": "调度配置"
+    },
+    "rolling_update_strategy": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "max_surge": {
+              "type": "string",
+              "description": "指定可以超过期望 Pod 数量的百分比，默认值为 25%，不能与 max_unavailable 同时为 0"
+            },
+            "max_unavailable": {
+              "type": "string",
+              "description": "在升级过程中不可用 Pod 数量的百分比，默认值为 25%，不能与 max_surge 同时为 0"
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "分批发布步骤，支持数字或 0-100% 百分比，表示每批发布的 Pod 数量或比例"
+            },
+            "step": {
+              "readOnly": true,
+              "type": "integer",
+              "description": "发布批次索引",
+              "format": "int32"
+            }
+          },
+          "description": "滚动升级策略",
+          "title": "RollingUpdateStrategy"
+        }
+      ],
+      "description": "滚动升级策略"
+    },
+    "replicas": {
+      "type": "integer",
+      "description": "指定副本数",
+      "format": "int32"
+    },
+    "state": {
+      "readOnly": true,
+      "enum": [
+        "STATE_UNSPECIFIED",
+        "INIT",
+        "UPDATING",
+        "QUEUING",
+        "SCHEDULED",
+        "PROGRESSING",
+        "RUNNING",
+        "FAILED",
+        "DELETING",
+        "DELETED",
+        "SUSPENDING",
+        "SUSPENDED"
+      ],
+      "type": "string",
+      "description": "应用状态",
+      "format": "enum"
+    },
+    "ready_replicas": {
+      "readOnly": true,
+      "type": "integer",
+      "description": "应用当前副本中运行状态的副本数量",
+      "format": "int32"
+    },
+    "root_mapping": {
+      "readOnly": true,
+      "type": "string",
+      "description": "指定挂载的文件存储是否以 root 权限读写：      - 当 `root_mapping` 为 `true` 时，文件存储将以 `root` 权限读写；      - 当 `root_mapping` 为 `false` 时，将使用非 `root` 用户权限进行读写。      此字段为只读，用户无需配置。      如需启用 root 权限访问，请联系租户管理员修改 POSIX 映射配置，      或关闭工作空间的 AFS 身份识别（将 workspace.posix_enabled 设置为      false）"
+    },
+    "create_time": {
+      "readOnly": true,
+      "type": "string",
+      "description": "应用创建时间",
+      "format": "date-time"
+    },
+    "update_time": {
+      "readOnly": true,
+      "type": "string",
+      "description": "应用更新时间",
+      "format": "date-time"
+    },
+    "termination_grace_period_seconds": {
+      "type": "integer",
+      "description": "停止前的优雅退出时间（秒）",
+      "format": "int32"
+    },
+    "current_revision": {
+      "readOnly": true,
+      "type": "string",
+      "description": "实例当前版本"
+    },
+    "update_revision": {
+      "readOnly": true,
+      "type": "string",
+      "description": "实例更新版本"
+    },
+    "update_replicas": {
+      "readOnly": true,
+      "type": "integer",
+      "description": "实例新版本副本数",
+      "format": "int32"
+    },
+    "ready_step": {
+      "readOnly": true,
+      "type": "integer",
+      "description": "实例新版本发布已完成的批次",
+      "format": "int32"
+    }
+  },
+  "description": "应用",
+  "title": "App"
+}

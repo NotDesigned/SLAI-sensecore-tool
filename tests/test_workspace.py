@@ -41,7 +41,7 @@ class WorkspaceTests(unittest.TestCase):
     def test_persistence_and_cancel(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'config.toml'
-            path.write_text('[paths]\n[sco]\n')
+            path.write_text('[account]\n')
             self.client.config={}
             with patch.object(cli,'CONFIG',path), patch.object(cloud,'Client',return_value=self.client), patch.object(ui,'choose',return_value=self.row):
                 workspace.configure({})

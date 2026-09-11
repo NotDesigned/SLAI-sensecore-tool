@@ -1,0 +1,18 @@
+Screen { background: $surface; }
+.heading { height: auto; min-height: 2; padding: 0 1; text-style: bold; color: $text; }
+.hint { height: auto; min-height: 2; padding: 0 1; color: $text-muted; }
+.dialog { width: 88; max-width: 95%; height: auto; max-height: 90%; border: round $primary; padding: 1 2; background: $surface; }
+Picker, Edit { align: center middle; }
+OptionList { height: 1fr; border: none; }
+.dialog OptionList { height: auto; max-height: 18; }
+Input { height: 3; }
+DataTable, RichLog, TextArea { height: 1fr; }
+.buttons { height: 3; }
+.buttons Button { min-width: 12; margin-right: 1; }
+.filters { height: 3; }
+.filters Input { width: 1fr; }
+.filters Select { width: 20; }
+#counter, #status, #error { height: auto; min-height: 2; padding: 0 1; }
+#home { margin: 1 2; }
+
+.review-context { height: 12; max-height: 45%; }

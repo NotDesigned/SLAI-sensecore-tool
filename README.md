@@ -1,177 +1,125 @@
 # SLAI-tool
 
-面向 SLAI 账户的 SenseCore 命令行工具，用交互菜单管理镜像、云容器、长任务和 DNAT 规则。支持 Windows x64、Linux、macOS，所有配置保存在项目根目录的 `config.toml`。
+面向 SLAI 账户的 SenseCore 管理工具。通过 REST 管理云资源，终端界面使用 Textual。
 
-| 功能 | 支持的操作 |
+| 服务 | 支持的操作 |
 | --- | --- |
-| SCO | 安装并配置、卸载 |
-| CCR | 上传镜像、列出可访问命名空间内的镜像 |
-| CCI | 创建、列出、停止、复制、删除 |
-| DNAT | 创建、列出、详情、绑定 CCI、解绑、删除 |
-| ACP | 创建、列出、详情、停止、复制、删除 |
+| CCI | 创建、按照上次配置创建、浏览、停止、复制、删除、附加 DNAT |
+| ACP | 创建、按照上次配置创建、浏览、详情、复制、停止、删除 |
+| DNAT | 创建、浏览、详情、绑定 CCI、解绑、删除 |
+| CCR | 上传镜像、浏览和搜索可访问镜像 |
 
-## 快速开始
+## 开始使用
 
-准备好 [uv](https://docs.astral.sh/uv/getting-started/installation/) 和 SenseCore AccessKey，然后执行：
+安装 Python 3.11+ 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)，在项目目录运行：
 
-```bash
-git clone git@github.com:NotDesigned/SLAI-sensecore-tool.git
-cd SLAI-sensecore-tool
+```sh
+uv sync
 uv run main.py
 ```
 
-uv 会准备 Python 3.11+ 及项目依赖。首次运行需联网；SCO 安装包随仓库分发，仓库因此较大。Linux/macOS 安装 SCO 需要 Bash、curl、tar、awk；Windows 安装使用 PowerShell、curl.exe、tar.exe，首次需联网下载 Windows 包。
+首次打开会看到“欢迎使用 SLAI-tool · 首次使用 1/2”。点击 **开始设置**（文本菜单选择 1），按顺序完成：
+
+1. 在 SenseCore 控制台右上角头像菜单打开“AccessKey 访问密钥”，创建并保存 ID 和 Secret；这是 API 密钥，不是网页登录密码。[官方说明](https://www.sensecore.cn/help/docs/ApiDoc/synopsis)
+2. 在工具里输入这两项，Secret 输入隐藏。验证成功后自动生成根目录 `config.toml`，不用手动复制文件。
+3. 选择默认工作空间。若没有选项，请联系 SLAI 管理员授权；取消此步后，下次启动会提示继续第二步。
+
+设置后，交互调试选 **CCI**，长任务选 **ACP**。进入服务列表后点击“创建”。首页的 **使用指南** 随时解释服务用途和所需工具。高级用户也可复制 [config.example.toml](config.example.toml) 后填写。配置和本地计划均不进入 Git。
+
+选择 **2. 选择默认工作空间**后，CCI 和 ACP 默认使用它。标题显示当前用户名和工作空间；操作时仍会校验资源是否可访问。
+
+主菜单：
 
 ```text
-1. 安装并配置 SCO
-2. 卸载 SCO
-3. CCR 服务
-4. CCI 服务
-5. DNAT 服务
-6. ACP 服务
-7. 选择默认工作空间
+1. 配置账户
+2. 选择默认工作空间
+3. CCR · 镜像管理
+4. CCI · 交互调试
+5. DNAT · 连接入口
+6. ACP · 长任务
 0. 退出
 ```
 
-首次选择 **1. 安装并配置 SCO**：安装主程序 → 配置本机环境变量和 PATH → 补齐账户信息并初始化 → 安装 EIP、CCR 组件。缺少 `config.toml` 时会基于[配置模板](config.example.toml)创建，不必提前填写全部字段。
+支持 Windows、macOS 和 Linux。完整安装说明见 [运行环境](docs/INSTALLATION.md)。
 
-编号菜单统一用 **`0` 返回**，确认页的 `0` 为取消，主菜单的 `0` 为退出。文字输入可用 `q` 取消，列表页可用 `r` 刷新。
+## 界面操作
 
-### 默认工作空间
+方向键移动，Enter 打开或编辑，0 / Esc 返回。文字输入中 0 是普通字符，Esc 取消；多行命令用 Ctrl+S 保存。
 
-主菜单标题显示当前登录用户名和默认工作空间。选择 **7. 选择默认工作空间**（或 `uv run main.py workspace`）将选择保存到根目录 `config.toml` 的 `[workspace]`，重启后仍有效。CCI 创建、列表及实例操作和 ACP 服务都会自动使用它，无需重复选择。通过主菜单 7 随时切换；命令行 `--workspace` 可临时覆盖 CCI 或 ACP 操作的工作空间，不改变保存值。每次仍校验云端资源身份；默认值失效时重新选择，不静默切换到其他工作空间。CCR 和 DNAT 本身按命名空间或网络资源组织，不额外受此筛选。
+进入服务直接打开列表，创建、上传和“按照上次配置”是列表页上的独立按钮。CCR 先显示可访问命名空间，选中后浏览镜像。
 
-### Windows 使用说明
+列表每页 20 条，←→ 翻页，`/` 搜索，Enter 查询，`r` 刷新。选中资源后进入操作。查询在后台进行，等待时可以返回。详情的“复制全部”写入系统剪贴板；无法使用剪贴板时可“保存文本”后打开复制。
 
-支持 Windows 10/11 x64；官方 SCO 安装器当前仅提供 AMD64，Windows ARM64 不在此原生支持范围。项目安装流程不需要 Bash，也不修改系统级 PATH；SCO 目录写入当前用户环境变量。
+不使用全屏界面时运行 `uv run main.py --text`；列表加 `--plain` 可直接打印结果。
 
-菜单可从 Windows PowerShell 或 PowerShell 7 启动；**输出的 SSH 命令请在 PowerShell 7.3+ 执行**，避免旧版本对嵌套引号的处理差异。需要 Windows OpenSSH Client；上传镜像需要 Docker Desktop 处于 Linux 容器模式。WSL 请按 Linux 流程使用。
+## CCI 创建与 SSH
 
-详见 [Windows 安装说明](docs/INSTALLATION.md#windows-x64)。当前在 macOS 完成兼容分支测试，原生 Windows 安装及云端连接尚待 Windows 环境验证。
+**CCI → 创建**会打开可编辑表单，集中显示资源池、规格、镜像、SSH 公钥、存储和 DNAT。最后选择“检查配置”，查看摘要后提交；默认仅保存计划。
 
-## 创建 CCI 并连接
+- 优先级固定 NORMAL，配额默认预留资源。
+- CPU、内存和加速卡资源键从实际规格读取。
+- AFS 默认挂载 `/<当前 IAM 用户名>` 到 `/data`；唯一存储自动选中。
+- SSH 默认开启，使用本机公钥登录 root，容器端口为 22。只上传公钥，私钥留在本机。
+- 镜像字段可以搜索 CCR 命名空间中的镜像名或标签，选中自动填入完整地址；默认镜像也可直接使用。
+- DNAT 可以新建、复用已有规则或不附加。新端口随机避开所有可见占用；迁移已有绑定会单独确认。
 
-进入 **CCI 服务 → 创建**，使用默认工作空间，选择资源池和规格，确认镜像、存储及 DNAT 入口，最后检查配置摘要并选择“提交创建”。默认先保存配置，不会直接创建云资源。
+保存过创建配置后，再次进入服务会显示“按照上次配置”。
 
-| 项目 | 默认行为 |
-| --- | --- |
-| 镜像 | `lepton-trainingjob/ngc-pytorch:25.06-cu12.9-py3.12-ubuntu24.04`，完整地址见配置模板 |
-| 资源 | 从云端规格自动获取 CPU、内存及加速卡资源键 |
-| 调度 | 优先级固定 `NORMAL`，配额默认 `RESERVED` |
-| AFS | 默认选择 AI 文件存储；同可用区仅一项时自动选中 |
-| 挂载 | `/<当前 IAM 用户名>` → `/data` |
-| SSH | 默认开启，使用本机公钥登录 `root`，容器端口 `22` |
-| DNAT | 默认新建，也可选择已有规则；公网端口随机避开已占用端口 |
+**CCI → 按照上次配置创建**会回填上次通过检查并保存的选项。资源会重新校验，名称自动更新；若上次附加 DNAT，会在同一 EIP 上创建新规则和新端口，不迁移旧实例的入口。无需修改时直接点击“提交创建”。上次配置按账号和工作空间隔离，保存在 `[cci.last]`。
 
-默认 SSH 启动脚本要求容器以 root 运行；镜像没有 sshd 时会尝试通过 apt 安装，需要容器能访问软件源。公钥通过 `cci.ssh_public_key` 指定，留空时从本机 `~/.ssh/*.pub` 选择。
+默认镜像为预装 sshd 的 `ccr-zhicheng-02/slai-cci-pytorch-ssh:25.06-20260911`，已验证 CCI 登录；需要该命名空间的拉取权限。默认 SSH 配置包含服务就绪检查。自定义镜像若缺少 sshd，启动脚本仍会尝试通过 apt 安装；预装镜像的构建说明见 [CCI 镜像](images/cci/README.md)。复制现有 CCI 保留其原模板和存储，不自动迁移 DNAT。
 
-创建并核实 DNAT 绑定后，工具输出**一条 SSH 命令**：终端直接执行，也可粘贴到 VS Code 的 **Remote-SSH: Add New SSH Host…**。工具不会自动连接或修改 SSH config；使用非默认私钥时，在命令中加 `-i 私钥路径`。
+工具输出一条 SSH 命令：终端直接执行；VS Code 中先用 **Remote-SSH: Add New SSH Host…** 粘贴保存，再通过 **Connect to Host…** 选择主机。整条命令不能填进只接受 `user@host` 的输入框。非默认私钥可另加 `-i 私钥路径`。
 
-输出命令前会自动检查 SSH 入口：直连或通过已配置的 SOCKS5 代理，最多等待约 8 秒。收到 SSH 协议响应会显示“入口可达”；失败提示可能未处于 SLAI 内网，请按下节配置代理，同时检查 CCI、sshd 和 DNAT。检查不进行登录，不验证公钥，也不会隐藏连接命令。
+### SLAI 内网代理
 
-### 需要 SOCKS5 代理时
-
-在本地 `config.toml` 中填写：
+在根 `config.toml` 中填写：
 
 ```toml
 [network.socks5]
-server = ""  # SOCKS5 服务器 IP；留空则直连
+server = ""
 port = 1080
 username = ""
 password = ""
 ```
 
-代理模式使用 Python 读取配置，再调用 **ncat** 转发。先按本机系统安装：
+留空则 SSH 直连；填写后，Python 代理脚本读取配置并调用 Ncat 转发。命令中不包含代理密码。未找到 Ncat 时会自动尝试系统安装命令；缺少权限或包管理器时显示可复制的手动命令：
 
-| 系统 | 安装命令 |
+| 系统 | 命令 |
 | --- | --- |
-| Windows | `winget install --id Insecure.Nmap -e`，或安装 Nmap 官方 Windows 安装包 |
 | macOS | `brew install nmap` |
-| Ubuntu / Debian | `sudo apt update && sudo apt install -y ncat` |
-| Fedora / Rocky / AlmaLinux | `sudo dnf install -y nmap-ncat` |
-| Arch Linux | `sudo pacman -S nmap` |
+| Ubuntu / Debian | `sudo apt install ncat` |
+| Windows | `winget install --id Insecure.Nmap -e` |
 
-Homebrew 包名是 **nmap**，不是 ncat。生成的 SSH 命令不含代理账号密码，执行时从配置读取；ncat 的进程参数仍包含凭据。命令引用本机 Python 和项目的绝对路径，移动项目或换电脑后需重新生成。
+Homebrew 包名是 **nmap**。Windows 的生成命令使用 PowerShell 7.3+。SSH 命令引用本机 Python 和项目绝对路径，移动项目后需重新生成；VS Code 也需要能找到 Ncat。
 
-更多配置见[SSH 与代理配置](docs/CONFIGURATION.md#ssh-与代理)。
+输出命令前会检查 SSH 协议响应。失败时可能不在 SLAI 内网，也可能是实例、sshd 或 DNAT 尚未就绪；检查不进行认证登录。代理类型是 SOCKS5。`network.acp_proxy = true` 可让 ACP REST 请求使用同一代理；其他管理接口使用系统网络。
 
 ## ACP 长任务
 
-主菜单选择 **6. ACP 服务**。创建时使用默认工作空间，选择资源池、规格、镜像和任务命令；默认单 Worker、PyTorch、RESERVED、NORMAL，重试次数为 0。AFS 可选择不挂载，挂载时默认使用当前用户子目录。
+ACP 使用同样的可编辑表单，支持搜索镜像和选择资源。任务命令必须明确填写：使用镜像入口时，填写入口程序及其参数，例如 `/opt/nvidia/nvidia_entrypoint.sh python /data/train.py`。省略命令不能保留 Docker Entrypoint，默认 NGC 入口也不会自行开始训练。
 
-```bash
-uv run main.py acp
-uv run main.py acp create
-uv run main.py acp list --workspace share-space-01e --plain
-uv run main.py acp list --workspace share-space-01e --name my-job
-```
+默认单 Worker、闲时资源、NORMAL、重试次数 0。列表仅显示当前用户任务，支持服务端名称前缀、状态筛选及按需分页。选择任务后可查看详情、复制、停止或删除。复制是新任务，checkpoint 恢复参数由训练命令负责；当前不提供原地重启。
 
-创建页先询问是否使用镜像内置启动逻辑。ACP 强制要求非空启动脚本，因此该模式需填写入口程序和参数，例如 `/entrypoint.sh python /data/train.py`；参数含空格时加引号，工具将其安全引用为 `exec ...`。不会自动读取远端镜像的 Entrypoint。默认 NGC 镜像的入口只做初始化，仍需训练程序参数。另一模式直接填写任务命令，例如 `set -eu; python /data/train.py`，不自动注入 SSH 服务或无限 sleep。
+ACP 也提供“按照上次配置”按钮：恢复镜像、启动方式、命令、资源及挂载，核对后可以直接提交。入口程序和参数就是唯一的任务命令，不需要再填写第二份启动命令。
 
-提交前显示镜像、规格、数量、命令和存储摘要，完整计划保存到 `.cache/acp/`，默认仅保存。列表仅显示当前用户任务，可用 `--name` 按名称前缀缩小范围，选择后可查看详情、停止、复制或删除。复制会沿用源任务配置并立即提交新任务，不会自动恢复 checkpoint。当前共享工作空间禁止停止后原地重启，因此暂不提供启动操作。提交超时表示结果未知，须按任务名刷新核对，不能盲目重试。
+## 本地镜像与 CCR、DNAT
 
-ACP 默认使用系统网络。`network.acp_proxy = true` 时，ACP 任务请求复用 `[network.socks5]` 的 SOCKS5 配置（不依赖 ncat）；资源目录与身份查询仍使用原有网络。无配置时使用系统网络，设置 `false` 可禁用此复用。代理凭据不会写入提交计划。日志流暂未验证可用，当前菜单不提供日志查看；任务成功状态也不等于已核验训练输出。详见 [ACP 实测记录](docs/ACP-LIVE-VALIDATION.md)。
+CCI / ACP 的镜像字段可选择本地 Docker 镜像，包括没有远端地址的标签。选择命名空间后显示源镜像 → Registry 目标；提交时自动按原镜像名称和标签同步，任务使用同步后的地址。检查、保存或取消不会上传；上传失败不会创建任务。当前资源池要求 linux/amd64 镜像，ARM 本地镜像需先按该架构构建。
 
-## 管理已有资源
+上传镜像需要正在运行的 Docker。先选择可访问且 ACTIVE 的命名空间，再填写源镜像、目标名称和标签。已有可用 Docker 凭据时不重复询问密码；推送权限由 Registry 校验。
 
-### CCI
+镜像列表表示“当前账号可访问的命名空间”，不等于本人创建。CCR 首次查询可能返回整个仓库目录；搜索、翻页和再次打开当前表单复用快照，刷新才重新读取。
 
-**CCI 服务 → 列出 → 选择实例**，可停止、复制或删除。列表仅显示当前用户的实例。
+DNAT 列表直接汇总本人创建的规则，无需先选择 EIP。创建规则仍需选择承载 EIP。删除已绑定规则会先解绑；删除 CCI 不会连带删除独立 DNAT。
 
-复制以新名称提交相同模板，沿用原存储目录，不自动迁移 DNAT。删除 CCI 也不会删除独立 DNAT 规则。
-
-### DNAT
-
-**DNAT 服务 → 列出 → 选择规则**，可查看详情、绑定已有 CCI、解绑或删除。列表汇总各 EIP 下本人创建的规则，以 **IP:端口** 开头，无需先选择 EIP。
-
-绑定时选择同可用区、同 VPC 的本人 CCI 及其已有 TCP 服务端口。迁移旧绑定会先确认；删除已绑定规则会先解绑，核实完成后再删除。单独解绑则保留规则及端口。
-
-### CCR
-
-**CCR 服务 → 上传镜像 / 列出可访问镜像**。上传需要本机 Docker 服务和已有镜像；登录使用 CCR 的客户端密码，不是 SCO AccessKey Secret。
-
-镜像列表范围是当前账号**可访问命名空间内的镜像**，不代表镜像均由本人创建。
-
-## 常用命令
-
-在项目根目录运行；服务命令不带子命令时打开菜单：
-
-```bash
-uv run main.py install
-uv run main.py cci
-uv run main.py dnat
-uv run main.py ccr
-
-# 仅打印列表，不进入操作菜单
-uv run main.py cci list --workspace your-workspace --plain
+```sh
+uv run main.py cci create-last
+uv run main.py acp create-last
+uv run main.py cci list --plain
+uv run main.py acp list --name task-prefix
 uv run main.py dnat list --plain
 uv run main.py ccr list --namespace your-namespace
 ```
 
-各服务支持 `--help`。完整参数与原生 EIP 兼容入口见[服务操作参考](docs/SERVICES.md)。
-
-## 常见问题
-
-- **安装后终端找不到 sco？** 打开新终端，或按安装输出加载 Shell 配置；项目菜单使用配置中的安装路径。
-- **找不到 ncat？** 需要 Nmap 的 Ncat，不是任意版本的 `nc`；macOS 用 `brew install nmap`。
-- **SSH 检查不通过或停在 Connecting？** 可能不在 SLAI 内网，请配置本页说明的 SOCKS5 代理；已配置代理时也需检查代理、CCI 状态、sshd 和 DNAT。当前不支持将 HTTP/HTTPS 代理地址直接填入 SOCKS5 配置。
-- **列表没有资源？** 核对账户权限、工作空间和区域；CCI/DNAT 只显示本人资源，CCR 显示可访问范围。
-- **操作超时？** 先刷新列表核对云端状态，再决定是否重试，避免重复创建。
-
-## 详细文档
-
-- [真实使用验收](docs/LIVE-VALIDATION.md)：生命周期、SSH、AFS 和网络边界。
-- [代码结构](docs/ARCHITECTURE.md)：公共客户端、交互、网络和服务边界。
-- [配置参考](docs/CONFIGURATION.md)：账户、路径、镜像、SSH、代理和 Docker。
-- [服务操作参考](docs/SERVICES.md)：创建、绑定、复制、任务操作及当前限制。
-- [安装与维护](docs/INSTALLATION.md)：缓存、Shell 环境、卸载及测试。
-- [安装包清单](vendor/sco/README.md)、[历史检查记录](docs/AUDIT.md)。
-- [ACP 调研与接入方案](docs/ACP-INTEGRATION.md)、[长任务实测与 Entrypoint 结论](docs/ACP-LIVE-VALIDATION.md)。
-
-`config.toml` 及其备份、虚拟环境和运行缓存均由 Git 忽略。真实账户配置只保留在本机。
-
-## 本次结构调整
-
-当前命令仅保留 `install`、`uninstall`、`workspace`、`ccr`、`cci`、`dnat`、`acp`。旧的 `init`、`docker-push`、`cci-create`、原生 `eip` 包装入口已移除。请使用 `ccr upload`、`cci create` 和 `dnat` 服务。
-
-代理配置统一放在 `[network.socks5]`，ACP 是否走代理由 `[network].acp_proxy` 控制。CCI 的 `command` 留空时以前台 sshd 保持运行；填写任何命令都会按自定义命令执行。ACP 镜像入口只接受普通命令和参数，不再接受 JSON 数组。DNAT 创建改为交互填写，不再读取 `--file` 模板。
+[配置参考](docs/CONFIGURATION.md) · [服务行为](docs/SERVICES.md) · [代码结构](docs/ARCHITECTURE.md) · [真实验证](docs/LIVE-VALIDATION.md)

@@ -1,24 +1,30 @@
 # 代码结构
 
-入口是 `main.py`，配置只读取根目录 `config.toml`。
+`main.py` 进入 `scripts/cli.py`，配置只读取根 `config.toml`。云业务只通过 REST 请求。
 
 | 模块 | 职责 |
 | --- | --- |
-| `cli.py` | 服务分发、账户配置、SCO 安装与维护、主菜单标题 |
-| `ui.py` | 输入、确认、服务菜单、列表刷新与操作 |
-| `cloud.py` | SCO 公共客户端、工作空间/资源池/规格/镜像/AFS 查询与选择 |
-| `rest.py` | HMAC 请求、用户 ID 校验、分页去重与完整性检查 |
-| `network.py` | 统一 SOCKS5 配置、ACP 代理环境、Ncat 参数与安装提示 |
-| `plans.py` | 私有权限保存 JSON/YAML 计划 |
-| `workspace.py` | 选择与记录默认工作空间 |
-| `cci.py` / `cci_service.py` | CCI 创建模板及实例操作 |
-| `cci_network.py` / `cci_ssh.py` | CCI 的 DNAT 绑定及 SSH 启动与连接命令 |
-| `acp.py` / `dnat.py` / `ccr.py` | 各服务的参数、状态与业务校验 |
+| onboarding.py | 首次账户/工作空间引导和服务用途说明，从根配置判断进度 |
+| cli.py | 主入口、账户验证、配置的原子保存、菜单标题 |
+| ui.py / tui.py / tui.tcss | Textual 与文本界面、选择、编辑、分页及后台请求 |
+| forms.py | 创建草稿、依赖校验、CCI/ACP 上次选项回填 |
+| cloud.py | 工作空间、关联池、规格、AFS/VPC/EIP 等 REST 查询与操作内缓存 |
+| rest.py | HMAC、HTTP/SOCKS5 传输、错误脱敏、分页完整性与身份校验 |
+| templates.py / schemas/ | 按公开请求 schema 保留可写字段，拒绝不明确的模板字段 |
+| cci.py / cci_api.py / cci_service.py | CCI 模板、应用/Service 生命周期、列表操作 |
+| cci_network.py / dnat.py | DNAT 创建、绑定、迁移、解绑、删除与复查 |
+| acp.py | ACP 模板、分页、详情、创建、复制和单目标批量控制 |
+| ccr.py / docker_registry.py | 镜像浏览、搜索和 Docker 上传 |
+| listing.py | 本地快照与统一页结果 |
+| workspace.py | 默认工作空间选择与持久化 |
+| cci_ssh.py / ssh_probe.py | SSH 启动配置、就绪与入口检查、连接命令 |
+| network.py / ncat_proxy.py / commands.py | SOCKS5、Ncat 转发与跨平台命令格式化 |
+| plans.py / clipboard.py | 私有计划文件、文本导出与系统剪贴板 |
 
-公共客户端不依赖 CCI 业务模块。ACP、CCI 和 DNAT 共用输入、列表操作与计划保存；CCI、CCR、DNAT 共用 REST 分页检查，SCO 数组列表通过适配器复用同一检查。
+同步 HTTP 和本地工具在 Textual worker 中运行。关闭只读页面后忽略迟到结果；写入操作等待结果，不把退出页面当作撤销云请求。没有替换全局 input/stdout。
 
-创建流程为收集参数、保存计划、展示摘要、确认提交、核对结果。服务保留各自的提交及复查逻辑：CCI 的容器模板、ACP 的训练命令、DNAT 的端口和绑定状态不使用同一种数据模型。所有权、资源 UID、端口冲突和写入后状态验证不属于可省略的界面逻辑。
+列表最多渲染当前 20 条。ACP 按服务端分页和筛选读取，缓存最多 12 页；CCR 使用命名空间完整快照，因为当前服务端忽略分页。CCI/DNAT 使用完整列表快照。缓存不跨账户持久化。
 
-配置分为 `[sco]` 账户、`[workspace]` 默认范围、`[network]` 网络、`[cci]` / `[acp]` 服务默认值和 `[docker]` 镜像上传默认值。代理地址及认证信息在 `[network.socks5]`；新旧配置不会混合读取。
+创建草稿更换资源池时清除依赖配置。规格和默认存储独立读取、最多并发 2 路，重复访问同一池使用缓存。上次配置在回填前校验账号、范围和资源身份；DNAT 只复用承载 EIP，不重放旧绑定。
 
-重构验证包括取消/仅保存不提交、旧入口拒绝、配置失效、部分分页重叠、整页/游标循环、所有权变化、端口冲突、带引号的命令参数、真实 Ncat 认证转发及 Windows 分支。云端只读验证与新资源生命周期实测分别记录，不以单元测试代替云端验收。
+服务层保存请求计划、确认目标身份、提交并复查最终状态。模板复制过滤只读字段，未知的非空字段拒绝静默丢弃。CCI 的独立 Service、ACP 的副本数转换和无文档 batchStop 路径见 [REST 接入记录](REST-MIGRATION.md)。

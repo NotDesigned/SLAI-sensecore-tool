@@ -1,3 +1,5 @@
-vendor/sco/* -text
-vendor/sco/*.json text eol=lf
-vendor/sco/*.md text eol=lf
+* text=auto
+*.py text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.json text eol=lf

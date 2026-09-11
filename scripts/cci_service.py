@@ -1,8 +1,8 @@
 """CCI creation and instance actions, scoped to the current user."""
+from scripts.ui import output as print
 import argparse
 import copy
 import re
-import time
 import urllib.parse
 import uuid
 
@@ -31,63 +31,13 @@ def label(app):
     return f"{cloud.display_name(app)} · {app.get('state')} · 就绪 {app.get('ready_replicas', 0)}/{app.get('replicas', 0)}"
 
 
-def delete_app(config, workspace, name, expected=None):
-    app = owned_app(config, workspace, name)
-    check_selected(app, expected)
-    client = cloud.Client(config)
-    client.scope(workspace)
-    cli.run(client.command(['cci', 'apps', 'delete', name, '--workspace-name', workspace['name']]), client.env)
-    for _ in range(10):
-        if not any(app['name'] == name for app in my_apps(config, workspace)):
-            return
-        time.sleep(2)
-    raise cli.ConfigError('删除已提交，CCI 尚未从列表消失，请稍后列出确认。')
-
-
-def owned_app(config, workspace, name):
-    app = next((x for x in my_apps(config, workspace) if x['name'] == name), None)
-    if app is None:
-        raise cli.ConfigError('CCI 不存在或不属于当前用户。')
-    return app
-
-
-def check_selected(app, expected):
-    if not app.get('uid'):
-        raise cli.ConfigError('CCI 缺少资源 UID，请刷新列表后重试。')
-    if expected is not None and (app.get('uid') != expected.get('uid')
-                                 or app.get('ownership') != expected.get('ownership')):
-        raise cli.ConfigError('CCI 身份已变化，请刷新列表后重试。')
-
-
-def stop_app(config, workspace, name, expected=None):
-    app = owned_app(config, workspace, name)
-    check_selected(app, expected)
-    if app.get('state') == 'SUSPENDED':
-        print('此 CCI 已停止。')
-        return
-    client = cloud.Client(config)
-    client.scope(workspace)
-    cli.run(client.command(['cci', 'apps', 'stop', name, '--workspace-name', workspace['name']]), client.env)
-    for _ in range(10):
-        current = owned_app(config, workspace, name)
-        check_selected(current, app)
-        if current.get('state') == 'SUSPENDED':
-            print('停止已验证：' + name)
-            return
-        time.sleep(2)
-    raise cli.ConfigError('停止已提交，尚未确认 SUSPENDED，请稍后刷新列表。')
-
-
-def resource_url(workspace, name, service=False):
-    sub, group, zone, ws, name = [urllib.parse.quote(workspace[k] if k else name, safe='')
-                                for k in ('subscription_name', 'resource_group_name', 'zone', 'name', None)]
-    kind, collection = ('service', 'services') if service else ('cci', 'apps')
-    return (f"https://cci.{workspace['region']}.sensecore.cn/compute/{kind}/data/v2/"
-            f'subscriptions/{sub}/resourceGroups/{group}/zones/{zone}/workspaces/{ws}/{collection}/{name}')
+# Shared identity checks also protect DNAT target binding.
+from scripts.cci_api import (owned as owned_app, check_identity as check_selected,
+                             stop as stop_app, delete as delete_app, resource_url)
 
 
 def copy_document(source):
-    fields = ('display_name', 'resource_pool', 'replicas', 'template', 'scheduling',
+    fields = ('display_name', 'resource_pool', 'replicas', 'template', 'scheduling', 'elastic_scaling',
               'rolling_update_strategy', 'termination_grace_period_seconds')
     if not all(source.get(k) for k in ('resource_pool', 'template')):
         raise cli.ConfigError('源 CCI 缺少资源池或容器模板，未提交复制。')
@@ -125,25 +75,16 @@ def copy_app(config, workspace, name):
         raise cli.ConfigError('CCI 名称需为小写字母开头的字母、数字或连字符，最长 63 字符。')
     document['display_name'] = new_name
     path = str(plans.save('cci', new_name, document, yaml_format=True))
+    from scripts import cci_api
+    plan = cci_api.creation_plan(workspace, new_name, document, ','.join(ports))
+    plans.save('cci', new_name + '-request', plan)
     print(f'源 CCI：{name} → 新 CCI：{new_name}\n配置文件：{path}\n服务端口：{",".join(ports) or "无"}')
     print('副本沿用原镜像、资源配置和存储挂载；不迁移原 DNAT。')
     cci.preview(document)
     if ui.choose('下一步', ['仅保存配置', '提交创建'], default='仅保存配置') != '提交创建':
         return
     check_selected(owned_app(config, workspace, name), source)
-    try:
-        get_json(config, resource_url(workspace, new_name))
-    except RestError as error:
-        if error.status != 404:
-            raise
-    else:
-        raise cli.ConfigError('新 CCI 名称已存在，未提交复制。')
-    client = cloud.Client(config)
-    client.scope(workspace)
-    args = ['cci', 'apps', 'create', new_name, '--workspace-name', workspace['name'], '--config', path]
-    if ports:
-        args.extend(['--ports', ','.join(ports)])
-    cli.run(client.command(args), client.env)
+    cci_api.create(config, plan)
     print('复制创建请求已提交：' + new_name)
 
 
@@ -158,30 +99,24 @@ def list_page(config, workspace, plain=False):
             else:
                 delete_app(config, workspace, app['name'], expected=app)
                 print('删除已验证：' + app['name'])
-    return ui.browse('我的 CCI · ' + workspace['name'], lambda: my_apps(config, workspace), label, selected, plain=plain)
+    actions = [('create','创建 CCI',lambda: cci.create(cli.load_config(), workspace_name=workspace['name']))]
+    if config.get('cci', {}).get('last'):
+        actions.append(('create-last','按照上次配置',lambda: cci.create(cli.load_config(), workspace_name=workspace['name'],reuse_last=True)))
+    return ui.browse('我的 CCI · ' + workspace['name'], lambda: my_apps(config, workspace), label, selected, plain=plain, actions=actions)
 
-
-def service_menu():
-    from scripts.ui import menu
-    return menu('CCI 服务', main, (('create', '创建'), ('list', '列出（停止 / 复制 / 删除）')))
 
 
 def main(args):
     parser = argparse.ArgumentParser(description='CCI 服务：创建、列出并选择停止 / 复制 / 删除。')
-    parser.add_argument('action', nargs='?', choices=['create', 'list', 'delete'])
+    parser.add_argument('action', nargs='?', choices=['create', 'create-last', 'list', 'delete'], default='list')
     parser.add_argument('--workspace', help='本次操作的工作空间，省略则使用已保存的默认工作空间')
     parser.add_argument('--name', help='待删除的 CCI 名称，省略则编号选择')
     parser.add_argument('--yes', action='store_true', help='跳过删除确认')
     parser.add_argument('--plain', action='store_true', help='仅打印列表，不进入实例操作页面')
     options = parser.parse_args(args)
-    if not options.action:
-        return service_menu()
     config = cli.load_config()
-    if options.action == 'create':
-        if options.workspace:
-            cci.create(config, workspace_name=options.workspace)
-        else:
-            cci.create(config)
+    if options.action in ('create','create-last'):
+        cci.create(config, workspace_name=options.workspace, reuse_last=options.action=='create-last')
         return 0
     client = cloud.Client(config)
     from scripts.workspace import select

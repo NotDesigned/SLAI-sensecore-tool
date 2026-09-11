@@ -44,16 +44,66 @@ class CcrTests(unittest.TestCase):
         row = {'name': 'shared/app', 'domain': 'registry.example', 'tags': ['v1', 'v2']}
         self.assertEqual(ccr.image_references(row), ['registry.example/shared/app:v1', 'registry.example/shared/app:v2'])
 
-    def test_menu_upload_list_and_return(self):
-        with patch('builtins.input', side_effect=['bad', '1', '2', '0']), patch.object(cli, 'load_config', return_value={}):
-            with patch.object(ccr, 'push_image') as upload, patch.object(ccr, 'list_images') as listing:
-                with contextlib.redirect_stdout(io.StringIO()):
-                    ccr.menu()
-        upload.assert_called_once_with({})
-        listing.assert_called_once_with({}, None)
+    def test_searchable_image_tags_cache_and_refresh(self):
+        catalog = ccr.ImageCatalog({})
+        rows = [dict(name='shared/app', domain='registry.example', tags=['v1', 'cuda12']),
+                dict(name='shared/untagged', domain='registry.example', tags=[])]
+        with patch.object(ccr, 'repositories', return_value=rows) as fetch:
+            source = catalog.source(self.ns)
+            self.assertEqual(source.page(0, 20, 'cuda12').rows, ['registry.example/shared/app:cuda12'])
+            self.assertIs(source, catalog.source(self.ns))
+            self.assertEqual(source.page(0, 20).total, 2)
+            fetch.assert_called_once()
+            source.page(0, 20, refresh=True)
+            self.assertEqual(fetch.call_count, 2)
+            other = catalog.source({**self.ns, 'subscription_name': 'other'})
+            self.assertIsNot(other, source)
 
-    def test_component_failure_does_not_skip_later_components(self):
-        with patch.object(cli, 'run', side_effect=[cli.ConfigError('failed'), None]) as run:
-            with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(cli.ConfigError, 'eip'):
-                cli.install_components({'sco': {'region': 'cnsh01', 'profile': 'default'}}, {}, '/sco')
-        self.assertEqual([call.args[0][-1] for call in run.call_args_list], ['eip', 'ccr'])
+    def test_image_search_scopes_accessible_namespaces_and_preserves_selection(self):
+        from scripts import ui
+        catalog = ccr.ImageCatalog({})
+        namespace = dict(self.ns, state='ACTIVE')
+        with patch.object(ccr, 'namespaces', return_value=[namespace, dict(self.ns, state='SUSPENDED')]) as fetch, \
+             patch.object(ui, 'select_resource', return_value='registry.example/shared/app:v1') as select:
+            self.assertEqual(catalog.select(), 'registry.example/shared/app:v1')
+            catalog.select()
+        fetch.assert_called_once()
+        self.assertIs(select.call_args_list[0].args[1], select.call_args_list[1].args[1])
+
+    def test_default_image_does_not_scan_local_docker_or_ccr(self):
+        from scripts import cloud, ui
+        with patch.object(ui, 'choose', return_value=cloud.DEFAULT_IMAGE), \
+             patch.object(cloud, 'local_images') as docker, patch.object(ccr, 'namespaces') as namespaces:
+            self.assertEqual(cloud.select_image('', {}), (cloud.DEFAULT_IMAGE, None))
+        docker.assert_not_called()
+        namespaces.assert_not_called()
+
+    def test_upload_namespace_filters_region_and_preserves_current_choice(self):
+        rows = [dict(name='current', state='ACTIVE', region='cn-sh-01'),
+                dict(name='other', state='ACTIVE', region='cn-sh-01'),
+                dict(name='different-region', state='ACTIVE', region='cn-sh-02'),
+                dict(name='inactive', state='SUSPENDED', region='cn-sh-01')]
+        with patch.object(ccr, 'namespaces', return_value=rows), patch.object(ccr, 'choose', return_value=rows[1]) as choose:
+            value = ccr.select_upload_namespace({}, 'registry.cn-sh-01.sensecore.cn', 'current')
+        self.assertEqual(value, 'other')
+        self.assertEqual(choose.call_args.args[1], rows[:2])
+        self.assertEqual(choose.call_args.kwargs['default'], rows[0])
+
+    def test_upload_namespace_query_failure_does_not_fall_back_to_typed_name(self):
+        from scripts import docker_registry, ui
+        with patch.object(ccr, 'namespaces', side_effect=cli.ConfigError('offline')), \
+             patch.object(docker_registry, 'ask') as ask, patch.object(docker_registry, 'save_config_updates') as save:
+            with self.assertRaises(cli.ConfigError):
+                docker_registry.complete_config({'docker': {'registry': 'registry.cn-sh-01.sensecore.cn', 'namespace': 'stale'}})
+        ask.assert_not_called()
+        save.assert_not_called()
+        with patch.object(ccr, 'namespaces', return_value=[dict(name='one', region='cn-sh-01', state='ACTIVE')]), \
+             patch.object(ccr, 'choose', side_effect=ui.Cancelled), patch.object(docker_registry, 'save_config_updates') as save:
+            with self.assertRaises(ui.Cancelled):
+                docker_registry.complete_config({'docker': {'registry': 'registry.cn-sh-01.sensecore.cn'}})
+        save.assert_not_called()
+
+    def test_service_defaults_to_list(self):
+        with patch.object(cli, 'load_config', return_value={}), patch.object(ccr, 'list_images') as listing:
+            ccr.main([])
+        listing.assert_called_once_with({}, None, plain=False)

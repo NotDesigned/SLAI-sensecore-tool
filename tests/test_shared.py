@@ -12,26 +12,16 @@ from scripts import cli, cloud, dnat, network, rest, ui
 
 class SharedTests(unittest.TestCase):
     def test_old_commands_fail_without_loading_credentials(self):
-        for command in ('init', 'docker-push', 'cci-create', 'eip'):
+        for command in ('install','uninstall','init', 'docker-push', 'cci-create', 'eip'):
             with patch.object(cli.sys, 'argv', ['main.py', command]), patch.object(cli, 'load_config') as load, contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(cli.main(), 2)
             load.assert_not_called()
 
-    def test_old_proxy_config_is_rejected_not_silently_direct(self):
-        with tempfile.TemporaryDirectory() as directory:
-            p=Path(directory)/'config.toml'
-            p.write_text('[paths]\n[sco]\n[cci.ssh_proxy]\nserver="192.0.2.2"\n')
-            with patch.object(cli,'CONFIG',p), self.assertRaisesRegex(cli.ConfigError,'network.socks5'):
-                cli.load_config()
-
-    def test_network_applies_only_to_copy_of_environment(self):
+    def test_explicit_proxy_uses_remote_dns(self):
         config={'network':{'acp_proxy':True,'socks5':{'server':'::1','username':'a','password':'a@b'}}}
-        env={'PATH':'unchanged'}
-        result=network.acp_environment(config,env)
-        self.assertEqual(result['HTTPS_PROXY'],'socks5://a:a%40b@[::1]:1080')
-        self.assertEqual(env,{'PATH':'unchanged'})
-        with self.assertRaises(cli.ConfigError):
-            network.acp_environment({'network':{'acp_proxy':True}},env)
+        self.assertEqual(network.acp_proxy_url(config,remote_dns=True),'socks5h://a:a%40b@[::1]:1080')
+        self.assertIsNone(network.acp_proxy_url({}))
+        with self.assertRaises(cli.ConfigError):network.acp_proxy_url({'network':{'acp_proxy':True}})
 
     def test_browse_retry_and_invalid_input_do_not_repeat_queries(self):
         fetch=Mock(side_effect=[cli.ConfigError('offline'),[{'name':'one'}]])
@@ -40,7 +30,7 @@ class SharedTests(unittest.TestCase):
         self.assertEqual(fetch.call_count,2)
 
     def test_mutation_transport_and_error_redaction(self):
-        config={'sco':{'access_key_id':'test-id','access_key_secret':'test-secret'}}
+        config={'account':{'access_key_id':'test-id','access_key_secret':'test-secret'}}
         response=Mock(); response.read.return_value=b'{}'; response.__enter__=Mock(return_value=response); response.__exit__=Mock(return_value=False)
         with patch.object(rest.urllib.request,'urlopen',return_value=response) as call:
             rest.request_json(config,'https://example.test/resource',method='POST',body={'name':'test'})

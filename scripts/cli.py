@@ -1,53 +1,44 @@
 #!/usr/bin/env python3
-"""SCO operations configured by the repository's single config.toml."""
+"""Application entry point and the repository's single account configuration."""
 import os
 import getpass
 import warnings
-
-import tomlkit
 from pathlib import Path
-import shutil
-import shlex
-import subprocess
 import sys
 import tempfile
-
-from scripts.download_cache import fetch
-
-try:
-    import tomllib
-except ModuleNotFoundError:
-    sys.exit('需要 Python 3.11+；请使用该版本运行 main.py。')
+import tomllib
+import tomlkit
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / 'config.toml'
+
+
+def print(*args, **kwargs):
+    from scripts.ui import output
+    return output(*args, **kwargs)
 
 
 class ConfigError(Exception):
     pass
 
 
-def load_config(for_init=False):
+def load_config(for_setup=False):
     try:
         with CONFIG.open('rb') as stream:
             config = tomllib.load(stream)
     except FileNotFoundError:
-        if not for_init:
-            raise ConfigError('缺少 config.toml，请复制 config.example.toml 为 config.toml 并填写配置。') from None
+        if not for_setup:
+            raise ConfigError('缺少 config.toml，请先选择“配置账户”，或复制 config.example.toml。') from None
         config = tomllib.loads((ROOT / 'config.example.toml').read_text(encoding='utf-8'))
     except tomllib.TOMLDecodeError:
-        # Parser errors can contain excerpts of credentials.
         raise ConfigError('config.toml 语法错误，请检查 TOML 格式。') from None
-    if for_init:
-        config.setdefault('sco', {})
-    for name in ('paths', 'sco'):
-        if not isinstance(config.get(name), dict):
-            raise ConfigError(f'config.toml 缺少 [{name}] 配置表。')
-    for section in ('install', 'cci', 'docker', 'acp', 'workspace', 'network'):
+    if for_setup:
+        config.setdefault('account', {})
+    if not isinstance(config.get('account'), dict):
+        raise ConfigError('config.toml 缺少 [account]，请按 config.example.toml 更新配置。')
+    for section in ('cci', 'docker', 'acp', 'workspace', 'network'):
         if section in config and not isinstance(config[section], dict):
             raise ConfigError(f'[{section}] 必须是配置表。')
-    if 'ssh_proxy' in config.get('cci', {}) or 'use_ssh_proxy' in config.get('acp', {}):
-        raise ConfigError('配置结构已更新：请将代理移至 [network.socks5]，ACP 开关改为 network.acp_proxy。')
     return config
 
 
@@ -58,96 +49,6 @@ def string_value(table, key, required=False):
     if required and not value.strip():
         raise ConfigError(f'请在 config.toml 中填写 {key}。')
     return value
-
-
-def runtime(config):
-    env = os.environ.copy()
-    for key, variable in (('home', 'SCO_HOME'), ('data_home', 'SCO_DATA_HOME'), ('config', 'SCO_CONFIG')):
-        value = string_value(config['paths'], key, required=True)
-        path = Path(value).expanduser()
-        if not path.is_absolute():
-            path = ROOT / path
-        env[variable] = str(path.resolve())
-    bin_dir = Path(env['SCO_HOME']) / 'bin'
-    env['PATH'] = str(bin_dir) + os.pathsep + env.get('PATH', '')
-    executable = bin_dir / ('sco.exe' if sys.platform == 'win32' else 'sco')
-    return env, executable
-
-
-def run(command, env):
-    # Pass an argv list, never a shell string; never print credential-bearing argv.
-    result = subprocess.run(command, env=env, check=False)
-    if result.returncode:
-        raise ConfigError(f'SCO 操作失败（退出码 {result.returncode}）。')
-
-
-REQUIRED_COMPONENTS = ('eip', 'ccr')
-
-
-def install_components(config, env, executable):
-    profile = string_value(config['sco'], 'profile').strip() or 'default'
-    region = string_value(config['sco'], 'region').strip() or 'cnsh01'
-    failures = []
-    for component in REQUIRED_COMPONENTS:
-        print(f'正在安装 {component.upper()} 组件（Profile：{profile}，Region：{region}）……')
-        try:
-            run([str(executable), '--profile', profile, '--region', region,
-                 'components', 'install', component], env)
-        except (ConfigError, OSError):
-            failures.append(component)
-    if failures:
-        raise ConfigError('SCO 已安装/配置，但以下组件安装失败：' + '、'.join(failures)
-                          + '。请修复后重新选择“安装并配置 SCO”以重试。')
-
-
-def install(config):
-    if sys.platform not in ('linux', 'darwin', 'win32'):
-        raise ConfigError('目前支持 Windows x64、Linux 和 macOS。')
-    if sys.platform == 'win32':
-        from scripts.windows import install as windows_install
-        return windows_install(config)
-    env, executable = runtime(config)
-    if not shutil.which('curl') or not shutil.which('bash'):
-        raise ConfigError('请先安装 curl 和 Bash。')
-    with tempfile.TemporaryDirectory(prefix='slai-sco-') as directory:
-        cache_value = string_value(config.get('install', {}), 'cache_dir') or 'vendor/sco'
-        cache = Path(cache_value).expanduser()
-        if not cache.is_absolute():
-            cache = ROOT / cache
-        cache = cache.resolve()
-        curl = shutil.which('curl')
-        try:
-            installer = fetch('https://sco.sensecore.cn/registry/install.sh', cache, curl, env)
-        except RuntimeError as error:
-            raise ConfigError(str(error)) from None
-        # Preserve the official installation, rollback and checksum logic.
-        shim = Path(directory) / 'curl'
-        helper = Path(__file__).resolve().with_name('download_cache.py')
-        shim.write_text('#!/bin/sh\nexec ' + shlex.quote(sys.executable) + ' '
-                        + shlex.quote(str(helper)) + ' "$@"\n', encoding='utf-8')
-        shim.chmod(0o700)
-        env['SLAI_DOWNLOAD_CACHE'] = str(cache)
-        env['SLAI_REAL_CURL'] = curl
-        env['PATH'] = str(shim.parent) + os.pathsep + env['PATH']
-        run(['bash', str(installer)], env)
-    # Discard the temporary curl shim before running installed components.
-    env, executable = runtime(config)
-    run([str(executable), 'version'], env)
-    from scripts.shell_env import configure
-    try:
-        shell_files = configure(env)
-    except ValueError as error:
-        raise ConfigError(str(error)) from None
-    print('已配置 Bash/Zsh 环境：' + '、'.join(map(str, shell_files)))
-    print('请打开新终端生效；当前终端可执行 source ~/.bashrc（Bash）或 source "${ZDOTDIR:-$HOME}/.zshrc"（Zsh）。')
-    print(f'SCO CLI 安装完成。命令目录：{executable.parent}')
-
-
-def install_and_configure(config):
-    install(config)
-    print('正在配置 SCO……')
-    initialize(config)
-    print('SCO 安装、配置及所需组件安装完成。')
 
 
 def save_config_updates(section, updates, original):
@@ -184,116 +85,31 @@ def save_config_updates(section, updates, original):
     return updated
 
 
-def save_sco_updates(updates, original):
-    return save_config_updates('sco', updates, original)
-
-
-def choose_region(config):
-    regions = config.get('regions')
-    if not isinstance(regions, dict) or not regions or any(
-        not isinstance(code, str) or not code.strip() or not isinstance(name, str) or not name.strip()
-        for code, name in regions.items()
-    ):
-        raise ConfigError('请在 config.toml 的 [regions] 中配置 Region code 与名称，可参考模板。')
-    choices = list(regions.items())
-    print('请选择 Region：')
-    for number, (code, name) in enumerate(choices, 1):
-        print(f'{number}. {name} ({code})')
-    print('0. 返回')
-    while True:
-        value = input(f'输入编号 [0-{len(choices)}]：').strip()
-        if value in ('0', 'q'):
-            from scripts.ui import Cancelled
-            raise Cancelled
-        if value.isascii() and value.isdecimal() and 1 <= int(value) <= len(choices):
-            return choices[int(value) - 1][0]
-        print('请输入列表中的有效编号。')
-
-
-def complete_sco_config(config):
-    settings = config['sco']
-    fields = (
-        ('access_key_id', 'AccessKey ID', None),
-        ('access_key_secret', 'AccessKey Secret', None),
-        ('region', 'Region code', None),
-        ('zone', '可用区', 'cn-sh-01'),
-        ('profile', 'Profile', 'default'),
-        ('language', '语言（zh-CN / en-US）', 'zh-CN'),
-    )
-    # Validate existing values before asking for or saving credentials.
-    for key, _, _ in fields:
-        string_value(settings, key)
-    if settings.get('language', '').strip() and settings['language'] not in ('zh-CN', 'en-US'):
-        raise ConfigError('language 只能为 zh-CN 或 en-US。')
-    updates = {}
-    for key, label, default in fields:
-        if settings.get(key, '').strip():
-            continue
-        if key == 'region':
-            updates[key] = choose_region(config)
-            continue
-        prompt = f'{label}' + (f' [{default}]' if default else '') + '：'
-        while True:
-            if key == 'access_key_secret':
-                try:
-                    with warnings.catch_warnings():
-                        warnings.simplefilter('error', getpass.GetPassWarning)
-                        value = getpass.getpass(prompt)
-                except getpass.GetPassWarning:
-                    raise ConfigError('当前终端不支持隐藏密钥输入，请在交互终端重试或填写 config.toml。') from None
-            else:
-                value = input(prompt).strip()
-            if not value.strip():
-                if default:
-                    value = default
-                else:
-                    print(f'{label} 不能为空，请重新输入。')
-                    continue
-            if key == 'language' and value not in ('zh-CN', 'en-US'):
-                print('语言请选择 zh-CN 或 en-US。')
-                continue
-            updates[key] = value
-            break
-    if updates:
-        updated = save_sco_updates(updates, settings)
-        config.clear()
-        config.update(updated)
-        print('缺失配置已保存到 config.toml。')
-
-
-def initialize(config):
-    complete_sco_config(config)
-    settings = config['sco']
-    command_args = []
-    for key in ('access_key_id', 'access_key_secret', 'region'):
-        command_args += ['--' + key.replace('_', '-'), string_value(settings, key, required=True)]
-    language = string_value(settings, 'language', required=True)
-    if language not in ('zh-CN', 'en-US'):
-        raise ConfigError('language 只能为 zh-CN 或 en-US。')
-    command_args += ['--language', language]
-    command_args += ['--zone', string_value(settings, 'zone') or 'cn-sh-01']
-    profile = string_value(settings, 'profile')
-    if profile:
-        command_args += ['--profile', profile]
-    env, executable = runtime(config)
-    if not executable.is_file():
-        raise ConfigError('配置的安装目录中找不到 SCO CLI，请先运行安装脚本或修改 paths.home。')
-    run([str(executable), 'init', *command_args], env)
-    print('SCO 初始化完成；凭据校验和保存后的诊断由 sco init 执行。')
-    install_components(config, env, executable)
-
-
-def uninstall(config):
-    env, executable = runtime(config)
-    if not executable.is_file():
-        raise ConfigError('配置的安装目录中找不到 SCO CLI，无需卸载。')
-    print('即将预览卸载 SCO CLI 时删除的本地配置和数据：')
-    run([str(executable), 'uninstall', '--dry-run'], env)
-    if input('确认卸载以上内容？输入 yes 确认，其他输入取消：').strip().lower() != 'yes':
-        print('已取消卸载。')
-        return
-    run([str(executable), 'uninstall', '--yes'], env)
-    print('SCO CLI 已卸载。')
+def configure_account(config):
+    from scripts import ui, rest
+    settings = config['account']
+    for key in ('access_key_id','access_key_secret'):
+        string_value(settings,key)
+    complete = all(settings.get(k,'').strip() for k in ('access_key_id','access_key_secret'))
+    replace = complete and ui.choose('账户设置',['验证当前账户','切换账户'],default='验证当前账户')=='切换账户'
+    updates = dict(settings)
+    if replace:
+        updates = {}
+    if not updates.get('access_key_id','').strip():
+        updates['access_key_id'] = ui.ask('AccessKey ID')
+    if not updates.get('access_key_secret','').strip():
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('error',getpass.GetPassWarning)
+                updates['access_key_secret'] = ui.secret('AccessKey Secret').strip()
+        except getpass.GetPassWarning:
+            raise ConfigError('当前终端无法隐藏密钥输入，请在交互终端重试或填写 config.toml。') from None
+    if not updates['access_key_secret']:
+        raise ConfigError('AccessKey Secret 不能为空。')
+    identity = rest.get_json({**config,'account':updates},'https://iam.sensecoreapi.cn/iam/idp/v1/me',timeout=20)
+    rest.identity_id(identity)
+    save_config_updates('account',updates,settings)
+    print('账户已验证并保存：' + str(identity.get('username') or identity['id']))
 
 
 def configure_workspace(config):
@@ -302,9 +118,9 @@ def configure_workspace(config):
 
 
 SERVICES = {'ccr': 'ccr', 'cci': 'cci_service', 'dnat': 'dnat', 'acp': 'acp'}
-MENU_ITEMS = (('install', '安装并配置 SCO'), ('uninstall', '卸载 SCO'),
-              ('ccr', 'CCR 服务'), ('cci', 'CCI 服务'), ('dnat', 'DNAT 服务'),
-              ('acp', 'ACP 服务'), ('workspace', '选择默认工作空间'))
+MENU_ITEMS = (('configure', '配置账户'), ('workspace', '选择默认工作空间'),
+              ('ccr', 'CCR · 镜像管理'), ('cci', 'CCI · 交互调试'), ('dnat', 'DNAT · 连接入口'),
+              ('acp', 'ACP · 长任务'))
 
 
 def guarded(operation):
@@ -327,11 +143,17 @@ def run_service(action, args):
 
 def execute(action):
     if action in SERVICES:
+        from scripts import onboarding
+        if onboarding.state()[0] == 'account':
+            return guarded(onboarding.start)
         return run_service(action, [])
 
     def operation():
-        config = load_config(for_init=action == 'install')
-        {'install': install_and_configure, 'uninstall': uninstall,
+        from scripts import onboarding
+        if action in ('configure', 'workspace') and onboarding.state()[0] == 'account':
+            return onboarding.start()
+        config = load_config(for_setup=action == 'configure')
+        {'configure': configure_account,
          'workspace': configure_workspace}[action](config)
     return guarded(operation)
 
@@ -348,7 +170,7 @@ def menu_title(identity_cache):
     try:
         config = load_config()
         workspace = clean(string_value(config.get('workspace', {}), 'name')) or '未选择'
-        settings = config['sco']
+        settings = config['account']
         ak = string_value(settings, 'access_key_id')
         sk = string_value(settings, 'access_key_secret')
         if not ak or not sk:
@@ -370,7 +192,7 @@ def menu_title(identity_cache):
                 identity_cache.update(key=key, username=username, expires=time.monotonic() + ttl)
             username = identity_cache['username']
     except (ConfigError, OSError):
-        username, workspace = '未配置或配置无效', '未选择'
+        username, workspace = ('未配置' if not CONFIG.exists() else '配置需要检查'), '未选择'
     return f'SLAI-tool · 用户：{username} · 工作空间：{workspace}'
 
 
@@ -378,10 +200,15 @@ def menu():
     identity_cache = {}
     while True:
         print('\n' + menu_title(identity_cache))
+        from scripts import onboarding
+        print(onboarding.state()[1])
         for index, (_, title) in enumerate(MENU_ITEMS, 1):
             print(f'{index}. {title}')
-        print('0. 退出')
+        print('h. 使用指南\n0. 退出')
         choice = input(f'请选择 [0-{len(MENU_ITEMS)}]：').strip().lower()
+        if choice == 'h':
+            onboarding.guide()
+            continue
         if choice in ('0', 'q'):
             return 0
         if not choice.isascii() or not choice.isdecimal() or not 1 <= int(choice) <= len(MENU_ITEMS):
@@ -391,32 +218,43 @@ def menu():
 
 
 def show_help():
-    print('用法：uv run main.py  （打开交互菜单）')
+    print('用法：uv run main.py  （打开 Textual 界面；--text 使用文本菜单）')
     print('服务：ccr、cci、dnat、acp；在服务名后加 --help 查看操作参数。')
-    print('设置：install（安装并配置）、workspace（选择默认工作空间）、uninstall（卸载）')
+    print('设置：configure（配置账户）、workspace（选择默认工作空间）')
     print('示例：uv run main.py cci list\n      uv run main.py acp create --workspace 工作空间名称')
 
 
 def main():
     if sys.platform not in ('linux', 'darwin', 'win32'):
-        print('目前支持 Windows x64、Linux 和 macOS。', file=sys.stderr)
+        print('目前支持 Windows、Linux 和 macOS。', file=sys.stderr)
         return 1
     try:
+        text_mode = '--text' in sys.argv[1:]
+        if text_mode:
+            sys.argv.remove('--text')
         if len(sys.argv) == 1:
+            if not text_mode and sys.stdin.isatty() and sys.stdout.isatty():
+                from scripts.tui import run as run_tui
+                return run_tui()
             return menu()
         if sys.argv[1] in ('-h', '--help'):
             show_help()
             return 0
         if sys.argv[1] in SERVICES:
+            if not text_mode and sys.stdin.isatty() and sys.stdout.isatty() and not any(x in sys.argv for x in ('--plain', '--help', '-h', '--yes')):
+                from scripts.tui import run as run_tui
+                return run_tui(sys.argv[1] if len(sys.argv) == 2 else lambda: run_service(sys.argv[1], sys.argv[2:]))
             return run_service(sys.argv[1], sys.argv[2:])
-        if len(sys.argv) == 2 and sys.argv[1] in ('install', 'uninstall', 'workspace'):
+        if len(sys.argv) == 2 and sys.argv[1] in ('configure', 'workspace'):
+            if not text_mode and sys.stdin.isatty() and sys.stdout.isatty():
+                from scripts.tui import run as run_tui
+                return run_tui(lambda: execute(sys.argv[1]))
             return execute(sys.argv[1])
         print('未知命令或参数；使用 uv run main.py --help 查看用法。', file=sys.stderr)
         return 2
     except (EOFError, KeyboardInterrupt):
         print('\n已退出。')
         return 130
-
 
 if __name__ == '__main__':
     sys.exit(main())

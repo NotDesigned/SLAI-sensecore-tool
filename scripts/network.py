@@ -51,8 +51,7 @@ def ncat_args(config, host, port):
     return [*args, host, str(port)]
 
 
-def acp_environment(config, env):
-    result = env.copy()
+def acp_proxy_url(config, *, remote_dns=False):
     enabled = config.get('network', {}).get('acp_proxy', False)
     if not isinstance(enabled, bool):
         raise cli.ConfigError('network.acp_proxy 必须为布尔值。')
@@ -64,9 +63,9 @@ def acp_environment(config, env):
         if ':' in host:
             host = '[' + host + ']'
         auth = quote(username, safe='') + ':' + quote(password, safe='') + '@' if username else ''
-        url = f'socks5://{auth}{host}:{port}'
-        result.update(HTTP_PROXY=url, HTTPS_PROXY=url, http_proxy=url, https_proxy=url)
-    return result
+        scheme = 'socks5h' if remote_dns else 'socks5'
+        return f'{scheme}://{auth}{host}:{port}'
+    return None
 
 
 def ncat_install_hint():
@@ -104,4 +103,59 @@ def find_ncat():
             candidate = Path(root) / 'Nmap' / 'ncat.exe'
             if candidate.is_file():
                 return str(candidate)
+    return None
+
+
+def ncat_install_commands():
+    import os
+    import shutil
+    import sys
+    if sys.platform == 'darwin':
+        return [[shutil.which('brew'), 'install', 'nmap']] if shutil.which('brew') else []
+    if sys.platform == 'win32':
+        winget = shutil.which('winget')
+        return [[winget, 'install', '--id', 'Insecure.Nmap', '-e', '--source', 'winget',
+                 '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity']] if winget else []
+    if sys.platform != 'linux':
+        return []
+    prefix = [] if os.geteuid() == 0 else [shutil.which('sudo'), '-n']
+    if None in prefix:
+        return []
+    for manager, commands in (
+        ('apt-get', [('update',), ('install', '-y', 'ncat')]),
+        ('dnf', [('install', '-y', 'nmap-ncat')]),
+        ('pacman', [('-S', '--needed', '--noconfirm', 'nmap')]),
+    ):
+        executable = shutil.which(manager)
+        if executable:
+            return [prefix + [executable, *args] for args in commands]
+    return []
+
+
+def ensure_ncat():
+    """Run in the UI worker, never in the SSH byte-stream proxy process."""
+    import os
+    import subprocess
+    from scripts import ui
+    executable = find_ncat()
+    if executable:
+        return executable
+    commands = ncat_install_commands()
+    if commands:
+        ui.output('本机缺少 Ncat，正在使用系统软件包管理器安装；可能需要几分钟…')
+        env = dict(os.environ, DEBIAN_FRONTEND='noninteractive')
+        try:
+            for command in commands:
+                result = subprocess.run(command, env=env, stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300)
+                if result.returncode:
+                    break
+            executable = find_ncat()
+            if executable:
+                ui.output('Ncat 已就绪。')
+                return executable
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    ui.show_text('请手动安装 Ncat', ncat_install_hint(),
+                 hint='自动安装未完成或需要管理员权限。请在终端执行后重新打开 SSH 连接。')
     return None

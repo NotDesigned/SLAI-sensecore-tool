@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 
 
-from scripts import cci_network as network, cloud, cli
+from scripts import cci_network as network, cloud, cli, cci_api
 
 class CciNetworkTests(unittest.TestCase):
     def test_existing_rules_are_combined_without_an_eip_selection(self):
@@ -36,7 +36,8 @@ class CciNetworkTests(unittest.TestCase):
 
     def test_existing_rule_migration_unbinds_before_binding_without_create(self):
         client, api = Mock(), Mock()
-        client.read.return_value = json.dumps({'uid': 'new-app'})
+        self.addCleanup(patch.stopall)
+        patch.object(cci_api, 'owned', return_value={'uid':'new-app'}).start()
         api.current_user_id.return_value = 'user'
         old = {'name': 'rule', 'uid': 'rule-id', 'creator_id': 'user', 'state': 'ACTIVE',
                'properties': {'external_ip': '192.0.2.1', 'external_port': '22222', 'protocol': 'tcp',
@@ -57,7 +58,8 @@ class CciNetworkTests(unittest.TestCase):
 
     def test_changed_existing_rule_is_not_unbound(self):
         client, api = Mock(), Mock()
-        client.read.return_value = json.dumps({'uid': 'new-app'})
+        self.addCleanup(patch.stopall)
+        patch.object(cci_api, 'owned', return_value={'uid':'new-app'}).start()
         api.current_user_id.return_value = 'user'
         old = {'name': 'rule', 'uid': 'original', 'creator_id': 'user', 'state': 'CREATED',
                'properties': {'external_port': '22222', 'protocol': 'tcp'}}
@@ -69,7 +71,8 @@ class CciNetworkTests(unittest.TestCase):
 
     def test_replaced_rule_does_not_pass_bind_readback(self):
         client, api = Mock(), Mock()
-        client.read.return_value = json.dumps({'uid': 'app-id'})
+        self.addCleanup(patch.stopall)
+        patch.object(cci_api, 'owned', return_value={'uid':'app-id'}).start()
         api.current_user_id.return_value = 'user'
         row = {'name': 'rule', 'uid': 'original', 'creator_id': 'user', 'state': 'CREATED',
                'properties': {'external_ip': '192.0.2.1', 'external_port': '22222',
@@ -131,7 +134,8 @@ class CciNetworkTests(unittest.TestCase):
 
     def test_unspecified_binding_is_not_reported_as_success(self):
         client, api = Mock(), Mock()
-        client.read.return_value = json.dumps({'uid': 'app-uid'})
+        self.addCleanup(patch.stopall)
+        patch.object(cci_api, 'owned', return_value={'uid':'app-uid'}).start()
         row = {'name': 'rule', 'state': 'CREATED', 'properties': {'external_ip': '192.0.2.1',
                'external_port': '22222', 'internal_port': '22', 'protocol': 'tcp'}}
         api.list.return_value = [{'name': 'rule', 'state': 'ACTIVE', 'properties': {'internal_instance_type': 'UNSPECIFIED'}}]

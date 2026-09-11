@@ -1,4 +1,5 @@
 """Push a local Docker image to SenseCore CCR using config.toml."""
+from scripts.ui import output as print
 import getpass
 import json
 from pathlib import Path
@@ -30,6 +31,9 @@ def validate(settings):
 
 
 def ask(label, default=''):
+    from scripts import ui
+    if ui.active():
+        return ui.ask(label, default)
     while True:
         value = input(label + (f' [{default}]' if default else '') + '：').strip()
         if value or default:
@@ -45,8 +49,10 @@ def complete_config(config):
     registry = string_value(settings, 'registry')
     if not registry.strip():
         settings['registry'] = ask('Registry 地址', 'registry.cn-sh-01.sensecore.cn')
-    # Last-used values are defaults, never a reason to skip per-upload questions.
-    for key, label in (('namespace', '目标命名空间'), ('source_image', '本地镜像（名称:标签或 ID）'),
+    from scripts.ccr import select_upload_namespace
+    settings['namespace'] = select_upload_namespace(config, settings['registry'], string_value(settings, 'namespace'))
+    # Last-used values are defaults, never a reason to skip per-upload choices.
+    for key, label in (('source_image', '本地镜像（名称:标签或 ID）'),
                        ('image_name', '目标镜像名称'), ('tag', '目标镜像标签')):
         default = string_value(settings, key) or ('latest' if key == 'tag' else '')
         settings[key] = ask(label, default)
@@ -105,6 +111,10 @@ def has_credentials(registry, env):
 def login(docker, settings, env):
     username = ask('Registry 用户名', string_value(settings, 'username'))
     while True:
+        from scripts import ui
+        if ui.active():
+            password = ui.secret('Registry 客户端登录密码')
+            break
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter('error', getpass.GetPassWarning)
@@ -115,7 +125,7 @@ def login(docker, settings, env):
             break
         print('密码不能为空。')
     result = subprocess.run([docker, 'login', settings['registry'], '--username', username, '--password-stdin'],
-                            env=env, input=password + '\n', text=True, encoding='utf-8')
+                            env=env, input=password + '\n', text=True, encoding='utf-8', capture_output=ui.active())
     if result.returncode:
         raise ConfigError('Docker 登录失败，上传流程已停止。')
     # Docker manages persistence via its credential store, not config.toml.
@@ -126,7 +136,8 @@ def run_push(docker, target, env):
     with subprocess.Popen([docker, 'push', target], env=env, stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT, text=True, encoding='utf-8') as process:
         for line in process.stdout:
-            print(line, end='', flush=True)
+            # Registry storage errors can contain short-lived signed URLs.
+            print(re.sub(r'(https?://[^\s?]+)\?[^\s]+', r'\1?[redacted]', line), end='', flush=True)
             tail.append(line.lower())
             tail = tail[-30:]
         code = process.wait()
@@ -134,6 +145,73 @@ def run_push(docker, target, env):
     auth_failed = any(marker in message for marker in
                       ('unauthorized', 'authentication required', 'no basic auth credentials'))
     return code, auth_failed
+
+
+def inspect_local(source):
+    docker = shutil.which('docker')
+    if not docker:
+        raise ConfigError('请先安装并启动 Docker。')
+    try:
+        result = subprocess.run([docker, 'image', 'inspect', '--format',
+            '{{json .Id}} {{json .Os}} {{json .Architecture}}', source],
+            capture_output=True, text=True, encoding='utf-8', timeout=20)
+        if result.returncode:
+            raise ValueError
+        image_id, system, arch = [json.loads(x) for x in result.stdout.strip().split()]
+        if not re.fullmatch(r'sha256:[a-f0-9]{64}', image_id):
+            raise ValueError
+    except (ValueError, OSError, subprocess.TimeoutExpired):
+        raise ConfigError('本地镜像不可用，请检查 Docker 服务与镜像标签。') from None
+    if (system, arch) != ('linux', 'amd64'):
+        raise ConfigError('所选镜像不是 linux/amd64，不能用于当前资源池；请用 docker buildx build --platform linux/amd64 --load 重新构建。')
+    return image_id
+
+
+def plan_sync(config, source):
+    """Resolve an explicit target without tagging, uploading, or logging secrets."""
+    image_id = inspect_local(source)
+    repository, tag = source.rsplit(':', 1)
+    first, separator, rest = repository.partition('/')
+    if separator and ('.' in first or ':' in first or first == 'localhost'):
+        repository = rest
+    settings = dict(config.get('docker', {}))
+    registry = string_value(settings, 'registry') or 'registry.cn-sh-01.sensecore.cn'
+    from scripts.ccr import select_upload_namespace
+    namespace = select_upload_namespace(config, registry, string_value(settings, 'namespace'))
+    # An already qualified CCR tag includes its namespace in the repository.
+    if source.startswith(registry + '/' + namespace + '/'):
+        repository = repository.removeprefix(namespace + '/')
+    settings.update(registry=registry, namespace=namespace, source_image=source,
+                    image_name=repository, tag=tag)
+    validate(settings)
+    target = f'{registry}/{namespace}/{repository}:{tag}'
+    print(f'提交时将自动同步：{source} → {target}；保留镜像名称和标签，任务使用同步后的地址。')
+    return {key:settings[key] for key in ('registry','namespace','source_image','image_name','tag')} | dict(source_id=image_id, target=target)
+
+
+def sync_image(config, plan):
+    """Upload only the exact local image the user reviewed; fail before creation."""
+    validate(plan)
+    target = f"{plan['registry']}/{plan['namespace']}/{plan['image_name']}:{plan['tag']}"
+    if target != plan['target'] or inspect_local(plan['source_image']) != plan['source_id']:
+        raise ConfigError('本地镜像或同步目标已变化，请重新选择镜像后提交。')
+    docker, env = shutil.which('docker'), os.environ.copy()
+    settings = dict(plan, username=string_value(config.get('docker', {}), 'username'))
+    saved_login = has_credentials(plan['registry'], env)
+    if not saved_login:
+        login(docker, settings, env)
+    print(f"正在同步本地镜像：{plan['source_image']} → {target}")
+    result = subprocess.run([docker, 'tag', plan['source_id'], target], capture_output=True, env=env)
+    if result.returncode:
+        raise ConfigError('本地镜像标记失败，未创建任务。')
+    code, auth_failed = run_push(docker, target, env)
+    if code and auth_failed and saved_login:
+        login(docker, settings, env)
+        code, _ = run_push(docker, target, env)
+    if code:
+        raise ConfigError(f'镜像同步失败（退出码 {code}），未创建任务。')
+    print('镜像同步完成：' + target)
+    return target
 
 
 def push_image(config):
@@ -144,7 +222,7 @@ def push_image(config):
     source = settings['source_image']
     target = f"{settings['registry']}/{settings['namespace']}/{settings['image_name']}:{settings['tag']}"
     env = os.environ.copy()
-    result = subprocess.run([docker, 'image', 'inspect', source], env=env, stdout=subprocess.DEVNULL)
+    result = subprocess.run([docker, 'image', 'inspect', source], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if result.returncode:
         raise ConfigError('本地镜像检查失败，请检查镜像名称和 Docker 服务。')
     saved_login = has_credentials(settings['registry'], env)
@@ -152,7 +230,7 @@ def push_image(config):
         print('Docker 未保存此 Registry 的可用凭据，请登录。')
         login(docker, settings, env)
     print(f'上传镜像：{source} → {target}', flush=True)
-    result = subprocess.run([docker, 'tag', source, target], env=env)
+    result = subprocess.run([docker, 'tag', source, target], env=env, capture_output=True)
     if result.returncode:
         raise ConfigError('Docker tag 失败，上传流程已停止。')
     code, auth_failed = run_push(docker, target, env)

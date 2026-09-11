@@ -1,12 +1,23 @@
-"""Shared SCO resource discovery for all cloud services."""
+"""Shared REST resource discovery for cloud services."""
+from scripts.ui import output as print
 import json
 import re
 import shutil
 import subprocess
+import copy
+import urllib.parse
 from scripts import cli, ui, rest
 
 DEFAULT_IMAGE = ('registry.cn-sh-01.sensecore.cn/lepton-trainingjob/'
                  'ngc-pytorch:25.06-cu12.9-py3.12-ubuntu24.04')
+
+
+DEFAULT_CCI_IMAGE = 'registry.cn-sh-01.sensecore.cn/ccr-zhicheng-02/slai-cci-pytorch-ssh:25.06-20260911'
+
+QUOTA_LABELS = {'RESERVED': '预留资源', 'SPOT': '闲时资源'}
+
+def quota_label(value):
+    return QUOTA_LABELS.get(value, value)
 
 
 def properties(resource):
@@ -29,165 +40,128 @@ def resource_label(item):
     return f"{display_name(item)} · {item.get('zone', '')}"
 
 
-def parse_specs(output):
-    # This SCO command only exposes a table. Detect its schema, and merge wrapped
-    # lines instead of treating continuation lines as separate specifications.
-    headers = None
-    rows = []
-    for line in output.splitlines():
-        if not line.strip().startswith('|'):
-            continue
-        cells = [cell.strip() for cell in line.strip().strip('|').split('|')]
-        if 'WORKER SPEC' in cells:
-            headers = cells
-            continue
-        if headers is None:
-            continue
-        if len(cells) != len(headers):
-            raise cli.ConfigError('SCO 规格列表格式发生变化，无法安全解析。')
-        row = dict(zip(headers, cells))
-        if row.get('VCPU COUNT'):
-            rows.append(row)
-        elif rows:
-            for key, value in row.items():
-                if value:
-                    rows[-1][key] += ('' if key in ('WORKER SPEC', 'ZONE') else ' ') + value
-    required = {'WORKER SPEC', 'CHIP MODEL', 'CHIP COUNT', 'VCPU COUNT', 'MEMORY(GIB)', 'ZONE'}
-    if headers is None or not required.issubset(headers):
-        raise cli.ConfigError('SCO 规格列表格式发生变化，无法安全解析。')
-    for row in rows:
-        if any(not row[key].isascii() or not row[key].isdecimal()
-               for key in ('CHIP COUNT', 'VCPU COUNT', 'MEMORY(GIB)')):
-            raise cli.ConfigError('SCO 规格资源数量格式无效。')
-    return rows
+def scope_path(resource, collection):
+    values = [resource.get(key) for key in ('subscription_name', 'resource_group_name', 'zone', 'name')]
+    if any(not isinstance(value, str) or not value or value in ('.', '..') or '/' in value for value in values):
+        raise cli.ConfigError('资源范围缺少有效的订阅、资源组、可用区或名称。')
+    sub, group, zone, name = (urllib.parse.quote(value, safe='') for value in values)
+    return f'/subscriptions/{sub}/resourceGroups/{group}/zones/{zone}/{collection}/{name}'
 
 
-def enrich_specs(output):
-    """Read the API body hidden by SCO's table formatter; never emit diagnostics."""
-    rows = parse_specs(output)
-    by_name = {}
-    for line in output.splitlines():
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        message = event.get('message', '') if isinstance(event, dict) else ''
-        prefix = 'Response status: 200 OK, body: {Reader:'
-        if not isinstance(message, str) or not message.startswith(prefix):
-            continue
-        try:
-            body, _ = json.JSONDecoder().raw_decode(message[len(prefix):])
-        except ValueError:
-            continue
-        if not isinstance(body, dict) or not isinstance(body.get('resource_specs'), list):
-            continue
-        for spec in body['resource_specs']:
-            if not isinstance(spec, dict) or not isinstance(spec.get('name'), str):
-                raise cli.ConfigError('云端规格详情格式无效。')
-            name = spec['name']
-            if name in by_name and by_name[name] != spec:
-                raise cli.ConfigError('云端返回了互相冲突的同名规格。')
-            by_name[name] = spec
-    for row in rows:
-        spec = by_name.get(row['WORKER SPEC'])
-        if not spec:
-            raise cli.ConfigError('SCO 未返回完整规格详情，无法自动获取资源键，请检查 SCO 版本。')
-        cpu, memory, device = (spec.get(key) for key in ('cpu', 'memory', 'device'))
+def api_origin(service, resource):
+    region = resource.get('region', '')
+    if not re.fullmatch(r'cn-[a-z]+-\d+', region):
+        raise cli.ConfigError('资源 Region 格式无效。')
+    return f'https://{service}.{region}.sensecoreapi.cn'
+
+
+def decode_specs(data, zone):
+    raw, _, _ = rest.list_page(data, 'resource_specs')
+    rows, names = [], set()
+    for spec in raw:
+        if spec['name'] in names:
+            raise cli.ConfigError('云端返回重复的规格名称。')
+        names.add(spec['name'])
+        cpu, memory, device = (spec.get(k) for k in ('cpu', 'memory', 'device'))
         if not all(isinstance(value, dict) for value in (cpu, memory, device)):
             raise cli.ConfigError('云端规格资源详情格式无效。')
-        if (cpu.get('vcpu_allocatable') != int(row['VCPU COUNT'])
-                or memory.get('allocatable') != int(row['MEMORY(GIB)'])
-                or device.get('number') != int(row['CHIP COUNT'])
-                or row['ZONE'] not in spec.get('zones', [])):
-            raise cli.ConfigError('规格列表与原始资源详情不一致，已停止创建。')
+        quantities = [cpu.get('vcpu_allocatable'), memory.get('allocatable'), device.get('number')]
+        if any(isinstance(n, bool) or not isinstance(n, int) or n < 0 for n in quantities) or not all(quantities[:2]):
+            raise cli.ConfigError('云端规格 CPU、内存或加速卡数量无效。')
+        if not isinstance(spec.get('zones'), list) or zone not in spec['zones']:
+            raise cli.ConfigError('规格与资源池可用区不一致。')
         key = device.get('resource_key', '')
-        if int(row['CHIP COUNT']) and (not isinstance(key, str) or not re.fullmatch(r'[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+', key)):
-            raise cli.ConfigError('云端加速卡规格缺少有效 resource_key，已停止创建。')
-        row['RESOURCE KEY'] = key
+        if quantities[2] and (not isinstance(key, str) or not re.fullmatch(r'[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+', key)):
+            raise cli.ConfigError('云端加速卡规格缺少有效资源键。')
+        rows.append({'WORKER SPEC': spec['name'], 'ZONE': zone, 'VCPU COUNT': str(quantities[0]),
+            'MEMORY(GIB)': str(quantities[1]), 'CHIP COUNT': str(quantities[2]),
+            'RESOURCE KEY': key, 'CHIP MODEL': str(device.get('type', '')), 'CPU': str(cpu.get('type', ''))})
     return rows
 
 
 class Client:
     def __init__(self, config):
         self.config = config
-        self.env, self.executable = cli.runtime(config)
-        if not self.executable.is_file():
-            raise cli.ConfigError('找不到 SCO，请先安装并配置 SCO。')
-        self.flags = []
-        for key in ('profile', 'region'):
-            value = cli.string_value(config['sco'], key)
-            if value:
-                self.flags.extend(['--' + key, value])
+        self._catalog = {}
+        self._clusters = {}
+        self._workspace = None
+        self._identity = None
 
-    def command(self, args):
-        return [str(self.executable), *self.flags, *args]
+    def identity_data(self):
+        if self._identity is None:
+            data = rest.get_json(self.config, 'https://iam.sensecoreapi.cn/iam/idp/v1/me')
+            rest.identity_id(data)
+            self._identity = data
+        return self._identity
 
     def current_username(self):
-        from scripts.rest import get_json
-        identity = get_json(self.config, 'https://iam.sensecoreapi.cn/iam/idp/v1/me')
-        username = identity.get('username') if isinstance(identity, dict) else None
+        identity = self.identity_data()
+        username = identity.get('username')
         if (not isinstance(username, str) or not username.strip() or username in ('.', '..')
                 or any(c in username for c in '/\\') or any(ord(c) < 32 for c in username)):
             raise cli.ConfigError('无法取得有效的当前用户名，未配置默认 AFS 子目录。')
         return username
 
-    def read(self, args, diagnostics=False, *, env=None, timeout=45):
-        try:
-            result = subprocess.run(self.command(args), env=self.env if env is None else env, capture_output=True,
-                                    text=True, timeout=timeout, encoding='utf-8')
-        except subprocess.TimeoutExpired:
-            raise cli.ConfigError('SCO 列表查询超时，请检查网络后重试。') from None
-        if result.returncode:
-            raise cli.ConfigError(f'SCO 查询失败（退出码 {result.returncode}），请检查权限、配置和网络。')
-        # Debug output may contain authentication data. Keep it in memory only;
-        # callers must extract the response body and never print/save raw output.
-        return result.stdout + '\n' + result.stderr if diagnostics else result.stdout
-
-    def list_json(self, args, *, empty_message=None):
-        def fetch(token):
-            raw = self.read([*args, '--page-size', '100', '--page-token', token])
-            if empty_message is not None and raw.strip() == empty_message:
-                rows = []
-            else:
-                try:
-                    rows = json.loads(raw)
-                except ValueError:
-                    raise cli.ConfigError('SCO 列表不是有效 JSON。') from None
-            if not isinstance(rows, list):
-                raise cli.ConfigError('SCO 列表格式无效。')
-            return {'items': rows, 'next_page_token': str(int(token) + 1) if len(rows) >= 100 else ''}
-        return rest.pages(fetch, 'items')
-
     def resources(self, resource_type):
-        rows = self.list_json(['srm', 'resources', 'list', '--format', 'json',
-                               '--filter', f"resource_type='{resource_type}'"])
-        return [row for row in rows if row.get('type') == resource_type and not row.get('deleted')]
+        if not re.fullmatch(r'[a-zA-Z0-9_.]+', resource_type):
+            raise cli.ConfigError('资源类型格式无效。')
+        scope = self._workspace or {}
+        cache_key = (resource_type, scope.get('subscription_name'), scope.get('resource_group_name'))
+        if cache_key not in self._catalog:
+            base = 'https://management.sensecoreapi.cn/rmh/v1/resources'
+            rows = rest.pages(lambda token: rest.get_json(self.config, rest.query_url(base,
+                {'filter': f"resource_type='{resource_type}'", 'page_size': 100, 'page_token': token})), 'resources')
+            self._catalog[cache_key] = rows
+        return [copy.deepcopy(row) for row in self._catalog[cache_key]
+                if row.get('type') == resource_type and not row.get('deleted')
+                and all(not scope.get(key) or row.get(key) == scope[key]
+                        for key in ('subscription_name', 'resource_group_name'))]
 
     def scope(self, workspace):
-        for key, field in (('subscription', 'subscription_name'), ('resource-group', 'resource_group_name')):
-            if workspace.get(field):
-                self.flags.extend(['--' + key, workspace[field]])
+        self._workspace = copy.deepcopy(workspace)
+
+    def workspace_record(self, name):
+        if self._workspace and self._workspace.get('name') == name:
+            return self._workspace
+        rows = [row for row in self.resources('compute.workspace.v1.instance') if row['name'] == name]
+        if len(rows) != 1:
+            raise cli.ConfigError('工作空间不存在或名称不唯一，请重新选择。')
+        return rows[0]
 
     def specs(self, workspace, cluster):
-        return enrich_specs(self.read(['aec2', 'clusters', 'list-workerspec',
-                                       '--workspace-name', workspace, '--aec2-name', cluster,
-                                       '--debug'], diagnostics=True))
+        record = self.workspace_record(workspace)
+        matches = [row for row in self.clusters(record) if row['name'] == cluster]
+        if len(matches) != 1:
+            raise cli.ConfigError('资源池未关联到工作空间，或名称不唯一。')
+        pool = matches[0]
+        url = api_origin('aec2', pool) + '/compute/aec2/data/v1' + scope_path(pool, 'aec2s') + '/resourceSpecs'
+        return decode_specs(rest.get_json(self.config, url), pool['zone'])
 
     def clusters(self, workspace):
-        result = []
-        workspace_id = workspace.get('uid') or workspace.get('id')
-        for resource in self.resources('compute.aec2.v1.instance'):
-            # SRM's properties may lag AEC2's current workspace associations.
-            raw = self.read(['aec2', 'clusters', 'describe', '--name', resource['name'], '-o', 'json'])
-            try:
-                cluster = json.loads(raw)
-            except ValueError:
-                raise cli.ConfigError('SCO 资源池详情不是有效 JSON。') from None
-            if not isinstance(cluster, dict) or not cluster.get('name'):
-                raise cli.ConfigError('SCO 资源池详情格式无效。')
-            if workspace_id in properties(cluster).get('workspace_uids', []) and cluster.get('state') == 'ACTIVE':
-                result.append(cluster)
-        return result
+        path = scope_path(workspace, 'workspaces')
+        base = api_origin('aec2', workspace) + '/compute/workspace/data/v1' + path + '/workspaceAEC2Bindings'
+        if base not in self._clusters:
+            rows = rest.pages(lambda token: rest.get_json(self.config, rest.query_url(base,
+                              {'page_size': 100, 'page_token': token})), 'aec2s', numbered=True)
+            result = []
+            names = set()
+            for row in rows:
+                if row.get('state') != 'ACTIVE':
+                    continue
+                match = re.fullmatch(r'/subscriptions/([^/]+)/resourceGroups/([^/]+)/zones/([^/]+)/aec2s/([^/]+)', row.get('id', ''))
+                if not match or not row.get('uid'):
+                    raise cli.ConfigError('关联资源池缺少有效资源 ID，无法确定范围。')
+                sub, group, zone, name = map(urllib.parse.unquote, match.groups())
+                if (name != row['name'] or name in names or sub != workspace['subscription_name']
+                        or group != workspace['resource_group_name']
+                        or not re.fullmatch(re.escape(workspace['region']) + r'[a-z]', zone)):
+                    raise cli.ConfigError('关联资源池的名称、订阅或可用区不一致。')
+                names.add(name)
+                result.append({**row, 'region': workspace['region'], 'zone': zone,
+                    'subscription_name': sub, 'resource_group_name': group,
+                    'properties': {'vpc_id': row.get('vpc_id', '')}})
+            self._clusters[base] = result
+        return copy.deepcopy(self._clusters[base])
 
 
 def local_images():
@@ -204,28 +178,33 @@ def local_images():
         for line in result.stdout.splitlines():
             item = json.loads(line)
             repository, tag = item['Repository'], item['Tag']
-            # Local-only names and dangling images cannot be pulled by CCI.
-            if '/' in repository and ('.' in repository.split('/')[0] or ':' in repository.split('/')[0]):
-                if '<none>' not in (repository, tag):
-                    images.append(repository + ':' + tag)
+            if '<none>' not in (repository, tag):
+                images.append(repository + ':' + tag)
         return sorted(set(images))
     except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
         print('本地 Docker 镜像列表不可用，可填写远端镜像地址。')
         return []
 
 
-def select_image(default):
+def select_image(default, config, *, catalog=None):
     default = default.strip() or DEFAULT_IMAGE
-    images = local_images()
-    if default and default not in images:
-        images.insert(0, default)
+    search, local = '搜索 CCR 镜像', '选择本地 Docker 标签'
     manual = '手动输入远端镜像地址'
-    selected = ui.choose('容器镜像（本地标签不代表已推送或有拉取权限）',
-                      [*images, manual], default=default if default in images else manual)
-    image = ui.ask('完整远端镜像地址') if selected == manual else selected
-    if image.startswith('-') or any(c.isspace() for c in image):
+    selected = ui.choose('容器镜像', [search, default, local, manual], default=search)
+    upload = None
+    if selected == search:
+        from scripts.ccr import ImageCatalog
+        image = (catalog or ImageCatalog(config)).select(default)
+    elif selected == local:
+        from scripts import docker_registry
+        source = ui.choose('本地 Docker 镜像（提交时自动同步）', local_images())
+        upload = docker_registry.plan_sync(config, source)
+        image = upload['target']
+    else:
+        image = ui.ask('完整远端镜像地址') if selected == manual else selected
+    if not image or image.startswith('-') or any(c.isspace() for c in image):
         raise cli.ConfigError('镜像地址格式无效。')
-    return image
+    return image, upload
 
 
 def select_mounts(client, zone):

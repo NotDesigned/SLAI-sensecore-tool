@@ -1,6 +1,6 @@
 """Optional DNAT plan and verified binding after CCI creation."""
+from scripts.ui import output as print
 import copy
-import json
 import time
 from scripts import ui, cloud, cli, dnat
 
@@ -87,10 +87,8 @@ def plan_dnat(config, document, ports, ssh_port=None):
 
 def attach_dnat(config, client, workspace, name, plan):
     # Capture the actual CCI UID instead of confusing it with the Service UID.
-    try:
-        app = json.loads(client.read(['cci', 'apps', 'describe', name, '--workspace-name', workspace, '-o', 'json']))
-    except ValueError:
-        raise cli.ConfigError('目标 CCI 已存在，但无法读取 UID，未提交 DNAT。') from None
+    from scripts.cci_api import owned
+    app = owned(config, client.workspace_record(workspace), name)
     uid = app.get('uid') if isinstance(app, dict) else None
     if not uid:
         raise cli.ConfigError('目标 CCI 已存在，但缺少 UID，未提交 DNAT。')

@@ -24,6 +24,24 @@ jobs:
       - name: Shared transport and workflow checks on Windows
         if: runner.os == 'Windows'
         run: uv run python -m unittest discover -s tests -p test_shared.py -v
+      - name: Textual keyboard and form checks on Windows
+        if: runner.os == 'Windows'
+        run: uv run python -m unittest discover -s tests -p test_tui.py -v
+      - name: REST and clipboard contracts on Windows
+        if: runner.os == 'Windows'
+        run: uv run python -m unittest discover -s tests -p test_rest_migration.py -v
+      - name: Creation and lifecycle contracts on Windows
+        if: runner.os == 'Windows'
+        run: uv run python -m unittest discover -s tests -p test_creation_updates.py -v
+      - name: REST lifecycle on Windows
+        if: runner.os == 'Windows'
+        run: uv run python -m unittest discover -s tests -p test_rest_lifecycle.py -v
+      - name: Saved creation defaults on Windows
+        if: runner.os == 'Windows'
+        run: uv run python -m unittest discover -s tests -p test_last_creation.py -v
+      - name: First-run setup on Windows
+        if: runner.os == 'Windows'
+        run: uv run python -m unittest discover -s tests -p test_onboarding.py -v
       - run: uv run python -m compileall -q scripts
       - run: uv run main.py cci --help
       - run: uv run main.py dnat --help

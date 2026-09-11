@@ -40,23 +40,6 @@ class SshTests(unittest.TestCase):
             with self.assertRaises(cli.ConfigError):
                 cci_ssh.public_key({'ssh_public_key': str(path)})
 
-    def test_prepare_ssh_skips_command_and_ports_prompts(self):
-        client = Mock()
-        client.resources.return_value = [{'name': 'ws'}]
-        client.clusters.return_value = [{'name': 'pool', 'zone': 'cn-sh-01e', 'properties': {'vpc_id': 'vpc'}}]
-        client.specs.return_value = [{'WORKER SPEC': 'cpu', 'ZONE': 'cn-sh-01e', 'VCPU COUNT': '2',
-                                     'MEMORY(GIB)': '4', 'CHIP COUNT': '0', 'CHIP MODEL': 'cpu'}]
-        with patch.object(cloud, 'select_image', return_value=cloud.DEFAULT_IMAGE), \
-             patch.object(cloud, 'select_mounts', return_value=[]), \
-             patch.object(cci_ssh, 'public_key', return_value='ssh-ed25519 AAAA'), \
-             patch('builtins.input', side_effect=['1', '1', '1', 'test-ssh', '', '']) as prompt, \
-             contextlib.redirect_stdout(io.StringIO()):
-            _, _, ports, doc = cci.prepare(client, {})
-        self.assertEqual(ports, '22')
-        self.assertEqual(doc['scheduling']['priority'], 'NORMAL')
-        self.assertEqual(prompt.call_count, 6)
-        self.assertIn('exec /usr/sbin/sshd -D', doc['template']['containers'][0]['command'][2])
-        self.assertFalse(any('启动命令' in call.args[0] or '开放端口' in call.args[0] for call in prompt.call_args_list))
 
     def test_proxy_command_quoting_and_ssh_percent_expansion(self):
         defaults = {'network': {'socks5': {'server': '192.0.2.2', 'port': 1080, 'username': 'user', 'password': "space ' $() %h"}}}
