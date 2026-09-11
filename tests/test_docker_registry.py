@@ -13,7 +13,7 @@ from scripts import docker_registry as registry
 class DockerRegistryTests(unittest.TestCase):
     def setUp(self):
         self.settings = {'registry': 'registry.cn-sh-01.sensecore.cn', 'namespace': 'project',
-                         'source_image': 'local:v1', 'image_name': 'app', 'tag': 'v1'}
+                         'source_image': 'local:v1', 'image_name': 'local', 'tag': 'v1'}
         self.config = {'docker': self.settings}
 
     def test_always_prompts_for_upload_details(self):
@@ -26,6 +26,30 @@ class DockerRegistryTests(unittest.TestCase):
         source.assert_called_once_with("local:v1")
         namespace.assert_called_once_with(self.config, self.settings['registry'], 'project')
         save.assert_not_called()
+
+    def test_upload_defaults_replace_prefix_and_preserve_tag(self):
+        cases = {
+            'old.example:5000/team/pytorch:25.06': ('pytorch', '25.06'),
+            'team/pytorch:v2': ('pytorch', 'v2'),
+            'localhost:5000/pytorch:v3': ('pytorch', 'v3'),
+            'pytorch': ('pytorch', 'latest'),
+            'old.example:5000/team/pytorch': ('pytorch', 'latest'),
+            'old.example/team/path/pytorch:v4': ('path/pytorch', 'v4'),
+            'sha256:' + 'a' * 64: ('', 'latest'),
+        }
+        for source, expected in cases.items():
+            with self.subTest(source=source):
+                self.assertEqual(registry.upload_defaults(source), expected)
+
+    def test_upload_defaults_follow_selected_image_not_previous_upload(self):
+        with patch('scripts.ccr.select_upload_namespace', return_value='project'), \
+             patch.object(registry, 'select_local_image', return_value='other.example/team/new:v7'), \
+             patch.object(registry, 'ask', side_effect=lambda label, default: default) as ask, \
+             patch.object(registry, 'save_config_updates', side_effect=lambda section, updates, original: {'docker': {**original, **updates}}):
+            result = registry.complete_config(self.config)
+        self.assertEqual(result['image_name'], 'new')
+        self.assertEqual(result['tag'], 'v7')
+        self.assertEqual(ask.call_args_list[0].args, ('目标镜像名称', 'new'))
 
     def test_new_details_are_saved(self):
         def save(section, updates, original):

@@ -54,6 +54,21 @@ def select_local_image(default=''):
     return ui.ask('本地镜像（名称:标签或 ID）', default) if selected == manual else selected
 
 
+def upload_defaults(source):
+    """Replace the source registry/namespace, retaining repository and tag."""
+    if re.fullmatch(r'(?:sha256:)?[a-f0-9]{12,64}', source) or '@' in source:
+        return '', 'latest'
+    repository, separator, tag = source.rpartition(':')
+    if not separator or '/' in tag:
+        repository, tag = source, 'latest'
+    first, separator, rest = repository.partition('/')
+    if separator and ('.' in first or ':' in first or first == 'localhost'):
+        repository = rest
+    if '/' in repository:
+        repository = repository.split('/', 1)[1]
+    return repository, tag
+
+
 def complete_config(config):
     original = config.get('docker', {})
     if not isinstance(original, dict):
@@ -66,8 +81,9 @@ def complete_config(config):
     settings['namespace'] = select_upload_namespace(config, settings['registry'], string_value(settings, 'namespace'))
     # Last-used values are defaults, never a reason to skip per-upload choices.
     settings['source_image'] = select_local_image(string_value(settings, 'source_image'))
+    defaults = dict(zip(('image_name', 'tag'), upload_defaults(settings['source_image'])))
     for key, label in (('image_name', '目标镜像名称'), ('tag', '目标镜像标签')):
-        default = string_value(settings, key) or ('latest' if key == 'tag' else '')
+        default = defaults[key]
         settings[key] = ask(label, default)
     validate(settings)
     updates = {key: settings[key] for key in ('registry', 'namespace', 'source_image', 'image_name', 'tag')
