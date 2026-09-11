@@ -700,7 +700,15 @@ class SlaiApp(App):
                 ui._backend.reset(token)
             if self.is_running:
                 self.call_from_thread(lambda: finished(result, error) if owner.is_mounted else None)
-        owner.run_worker(work, thread=True, exit_on_error=False)
+        def launch():
+            if owner.is_mounted:
+                owner.run_worker(work, thread=True, exit_on_error=False)
+        # on_mount runs before is_mounted becomes true. A fast worker would
+        # otherwise cancel its first prompt or lose its completion callback.
+        if owner.is_mounted:
+            launch()
+        else:
+            owner.call_after_refresh(launch)
 
     def action_quit(self):
         if len(self.screen_stack) > 1:

@@ -74,3 +74,23 @@ class AccountErrorUiTests(unittest.IsolatedAsyncioTestCase):
                     break
             self.assertTrue(app.screen.done)
             self.assertIn('账户已保存，工作空间未完成', str(app.screen.query_one('#status', Static).render()))
+
+    async def test_operation_worker_starts_after_mount(self):
+        import threading
+        started = threading.Event()
+        mounted = []
+        class SlowMountOperation(Operation):
+            def on_mount(self):
+                super().on_mount()
+                # Let an incorrectly eager worker observe the pre-mount state.
+                started.wait(.1)
+        app = SlaiApp()
+        async with app.run_test() as pilot:
+            operation = SlowMountOperation('mount probe', lambda: (mounted.append(operation.is_mounted), started.set()))
+            await app.push_screen(operation)
+            for _ in range(100):
+                await pilot.pause(.025)
+                if operation.done:
+                    break
+            self.assertTrue(operation.done)
+            self.assertEqual(mounted, [True])
