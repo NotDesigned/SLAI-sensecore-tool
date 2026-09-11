@@ -21,6 +21,14 @@ def writable(kind, document):
         if isinstance(value, dict):
             result = {}
             for key, item in value.items():
+                # ACP GET includes metadata, but neither Create nor Update
+                # declares it. Announce the omission rather than silently
+                # accepting arbitrary unknown fields.
+                if path == 'acp' and key == 'metadata':
+                    if item not in (None, '', [], {}):
+                        from scripts import ui
+                        ui.output('源任务含 metadata；ACP 创建接口不支持该字段，副本不包含这部分元信息。')
+                    continue
                 field = spec.get('properties', {}).get(key, spec.get('additionalProperties'))
                 if field is None:
                     # Returned by the ACP server but absent from both the

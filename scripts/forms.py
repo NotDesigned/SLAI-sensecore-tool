@@ -162,7 +162,7 @@ class CreateDraft:
                  ('quota', '配额', cloud.quota_label(v['quota']))]
         mounts = v['mounts']
         rows.append(('mounts', 'AI 文件存储', '待选择' if mounts is None else
-                     '；'.join(m['subdir'] + ' → ' + m['mount_path'] for m in mounts) or '不挂载'))
+                     '；'.join(m.get('subdir', '') + ' → ' + m.get('mount_path', '') for m in mounts) or '不挂载'))
         automatic_vpc = bool(v['cluster'] and cloud.properties(v['cluster']).get('vpc_id'))
         rows.append(('vpc', 'VPC（自动）' if automatic_vpc else 'VPC', v['vpc'] or '待匹配'))
         if self.kind == 'cci':

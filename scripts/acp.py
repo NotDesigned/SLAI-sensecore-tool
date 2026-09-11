@@ -4,7 +4,6 @@ import argparse
 import json
 import re
 import time
-import uuid
 
 from scripts.rest import get_json
 from scripts import ui, cloud, cli, network, plans, rest, templates
@@ -180,7 +179,8 @@ def confirm_submit(client, workspace, name, document, source=None, draft=None):
     print('配额：' + cloud.quota_label(document.get('scheduling', {}).get('quota_type', '')))
     print('挂载：' + ('；'.join(m.get('subdir', '') + ' → ' + m['mount_path'] for m in document.get('mount', [])) or '无'))
     if draft:
-        cli.save_config_updates('acp', {'last':draft.snapshot()}, draft.defaults)
+        if source is None:
+            cli.save_config_updates('acp', {'last':draft.snapshot()}, draft.defaults)
         if draft.save_requested:
             return
     if not (draft and draft.submit_requested) and ui.choose('下一步', ['提交创建', '仅保存配置'], default='提交创建') != '提交创建':
@@ -200,9 +200,11 @@ def operate(client, workspace, row, action):
     if action == '详情':
         ui.show_text('ACP 详情 · ' + row['name'], json.dumps(current, ensure_ascii=False, indent=2))
     elif action == '复制':
-        name = validate_name(ui.ask('新任务名称', row['name'][:40] + '-copy-' + uuid.uuid4().hex[:8]))
-        print('沿用源任务的镜像、启动命令、资源和挂载；不会自动恢复训练 checkpoint。')
-        confirm_submit(client, workspace, name, copy_document(current, name), source=current)
+        from scripts.copy_draft import CopyDraft
+        document = copy_document(current, current['name'])
+        draft = CopyDraft('acp', client, client.workspace_record(workspace), document, row['name'])
+        name, document = ui.creation_form(draft)
+        confirm_submit(client, workspace, name, document, source=current, draft=draft)
     elif action in ('停止', '删除'):
         if ui.choose('确认' + action + '：' + row['name'], ['取消', action], default='取消') != action:
             return

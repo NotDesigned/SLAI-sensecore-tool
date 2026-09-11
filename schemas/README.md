@@ -6,3 +6,5 @@
 - [ACP 创建接口](https://console.sensecore.cn/micro/help/docs/API/acp/training-job-service-create-training-job/)
 
 ACP 创建不能同时提交 total_replicas 和 GET 返回的每规格 replicas；此约束由实际写入验证并在复制投影后处理。服务端将来增加可写字段时，应更新 schema 后再允许复制。
+
+ACP 查询响应还可能带有 `metadata`，但官方创建和更新接口均未声明此字段。复制时明确提示并排除该字段，不将其加入创建请求；其他未知的非空字段仍会阻止复制。

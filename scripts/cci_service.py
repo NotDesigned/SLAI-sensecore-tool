@@ -5,7 +5,6 @@ import copy
 import re
 import time
 import urllib.parse
-import uuid
 
 from scripts.rest import get_json
 from scripts.rest import RestError
@@ -71,22 +70,27 @@ def copy_app(config, workspace, name):
                 or str(port.get('protocol', 'TCP')).upper() != 'TCP'):
             raise cli.ConfigError('源服务含非等值端口映射或非 TCP 端口，当前复制无法完整保留，未提交。')
         ports.append(str(value))
-    new_name = ui.ask('新 CCI 名称', default=name[:40] + '-copy-' + uuid.uuid4().hex[:8])
-    if not re.fullmatch(r'[a-z][a-z0-9-]{0,61}[a-z0-9]|[a-z]', new_name):
-        raise cli.ConfigError('CCI 名称需为小写字母开头的字母、数字或连字符，最长 63 字符。')
-    document['display_name'] = new_name
-    path = str(plans.save('cci', new_name, document, yaml_format=True))
+    from scripts.copy_draft import CopyDraft
     from scripts import cci_api
-    plan = cci_api.creation_plan(workspace, new_name, document, ','.join(ports))
+    from scripts.cci_network import attach_dnat
+    client = cloud.Client(config)
+    client.scope(workspace)
+    draft = CopyDraft('cci', client, workspace, document, name, ','.join(ports))
+    _, new_name, ports, document, network = ui.creation_form(draft)
+    path = plans.save('cci', new_name, document, yaml_format=True)
+    plan = cci_api.creation_plan(workspace, new_name, document, ports)
     plans.save('cci', new_name + '-request', plan)
-    print(f'源 CCI：{name} → 新 CCI：{new_name}\n配置文件：{path}\n服务端口：{",".join(ports) or "无"}')
-    print('副本沿用原镜像、资源配置和存储挂载；不迁移原 DNAT。')
-    cci.preview(document)
-    if ui.choose('下一步', ['提交创建', '仅保存配置'], default='提交创建') != '提交创建':
+    if network:
+        plans.save('cci', new_name + '-dnat', network)
+    print(f'复制配置已保存：{path}')
+    if draft.save_requested:
         return
     check_selected(owned_app(config, workspace, name), source)
+    draft.sync_image()
     cci_api.create(config, plan)
     print('复制创建请求已提交：' + new_name)
+    if network:
+        attach_dnat(config, client, workspace['name'], new_name, network)
 
 
 def bound_tcp_rule(row, app):

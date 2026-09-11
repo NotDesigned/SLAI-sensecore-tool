@@ -101,6 +101,12 @@ class CciServiceTests(unittest.TestCase):
         result['template']['containers'][0]['command'].append('changed')
         self.assertEqual(source['template']['containers'][0]['command'], ['sleep', 'infinity'])
 
+    def copy_form(self, draft, source, submit):
+        draft.submit_requested, draft.save_requested = submit, not submit
+        document = cci_service.copy_document(source)
+        document['display_name'] = 'new-copy'
+        return self.ws['name'], 'new-copy', '22', document, None
+
     def test_copy_submission_and_save_only(self):
         import tempfile
         from pathlib import Path
@@ -112,7 +118,7 @@ class CciServiceTests(unittest.TestCase):
                  patch.object(cci_service, 'owned_app', return_value=source), \
                  patch.object(cci_service, 'get_json', side_effect=[source, {'ports': [{'port': 22, 'target_port': 22}]}, cci_service.RestError(404)]), \
                  patch.object(cci_api, 'create') as create, \
-                 patch('builtins.input', side_effect=['new-copy', '' if submit else '2']), \
+                 patch.object(ui, 'creation_form', side_effect=lambda draft: self.copy_form(draft, source, submit)), \
                  contextlib.redirect_stdout(io.StringIO()):
                 cci_service.copy_app({}, self.ws, 'mine')
                 files = list(Path(directory).rglob('*.yaml'))
