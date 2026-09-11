@@ -50,7 +50,7 @@ class CcrTests(unittest.TestCase):
                 with contextlib.redirect_stdout(io.StringIO()):
                     ccr.menu()
         upload.assert_called_once_with({})
-        listing.assert_called_once_with({})
+        listing.assert_called_once_with({}, None)
 
     def test_component_failure_does_not_skip_later_components(self):
         with patch.object(cli, 'run', side_effect=[cli.ConfigError('failed'), None]) as run:

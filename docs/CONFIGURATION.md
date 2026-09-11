@@ -43,16 +43,16 @@ command = ""
 - `image`：默认镜像，可换成自己的完整远端地址；留空或省略使用上面的默认值。
 - `ssh_enabled`：默认 `true`，自动生成 sshd 启动脚本，开放 22 端口；不再询问普通启动命令和端口。
 - `ssh_public_key`：OpenSSH 公钥文件路径，不能填写私钥。留空时查找 `~/.ssh/*.pub`；只有一项则自动使用，多项时编号选择，没有则询问路径。相对路径以项目根目录为基准。
-- `command`：SSH 模式下留空、`sleep infinity` 或 `sleep inf`，均以前台 sshd 保持容器运行；其他命令则在启动 sshd 后执行。
+- `command`：SSH 模式下留空时以前台 sshd 保持容器运行；非空命令则在启动 sshd 后执行。
 
 `ssh_enabled = false` 时恢复普通容器的启动命令、端口交互，默认命令为 `sleep infinity`。自定义命令通过 `/bin/sh -c` 执行。
 
-工作空间、资源池、规格通过实时云端列表选择。优先级固定 NORMAL，配额默认 RESERVED，可选择 SPOT。AFS 默认本人 IAM 用户名目录挂载到 `/data`；仅一个同可用区存储时自动选中，多项时优先匹配 `afs-share-<可用区末段>`。这些不是可任意扩展的 TOML 参数，当前模板未提供额外配置键。
+工作空间默认使用主菜单 7 保存的选择，资源池、规格通过实时云端列表选择。优先级固定 NORMAL，配额默认 RESERVED，可选择 SPOT。AFS 默认本人 IAM 用户名目录挂载到 `/data`；仅一个同可用区存储时自动选中，多项时优先匹配 `afs-share-<可用区末段>`。这些不是可任意扩展的 TOML 参数，当前模板未提供额外配置键。
 
 ## SSH 与代理
 
 ```toml
-[cci.ssh_proxy]
+[network.socks5]
 server = ""
 port = 1080
 username = ""
@@ -93,15 +93,30 @@ tag = "latest"
 
 `username` 用于 Docker 登录提示，密码由 Docker 的凭据存储管理，不保存到此配置。请使用 CCR 客户端登录密码，而非 AccessKey Secret。详情见[镜像操作参考](SERVICES.md#ccr-镜像管理)。
 
-## 兼容入口
+Windows TOML 路径推荐使用正斜杠，例如 `C:/Users/name/.sco`，或使用 TOML 单引号保留反斜杠。默认 `~/.sco` 等路径在 Windows 下也可用；项目自动选择 `sco.exe`。SSH 代理命令输出采用 PowerShell 7.3+ 引号规则，路径包含百分号时需移动项目后重新生成。
 
-```bash
-uv run main.py init         # 仅重新初始化并安装所需组件
-uv run main.py docker-push  # 等同 CCR 上传入口
-uv run main.py cci-create   # 等同 CCI 创建入口
-uv run main.py uninstall
+
+## 默认工作空间
+
+通过主菜单 7 或 `uv run main.py workspace` 选择，自动保存 `[workspace]` 的名称、资源 ID、Region、订阅、资源组和可用区。CCI、ACP 默认使用该资源范围；`--workspace` 可临时覆盖本次操作。工作空间失效时会重新询问，不静默切换。
+
+## ACP 默认值
+
+```toml
+[acp]
+image = ""
+command = ""
+
 ```
 
-ACP 配置仍处于[接入方案](ACP-INTEGRATION.md)阶段；不要将其中拟议参数理解为当前菜单已支持。
+`image` 留空使用与 CCI 相同的默认 NGC 镜像；`command` 为任务命令输入框默认值。创建页确认启动方式、框架、Worker 数量和配额；优先级固定 NORMAL，重试次数 0。不会注入 CCI 的 SSH 启动脚本。
 
-Windows TOML 路径推荐使用正斜杠，例如 `C:/Users/name/.sco`，或使用 TOML 单引号保留反斜杠。默认 `~/.sco` 等路径在 Windows 下也可用；项目自动选择 `sco.exe`。SSH 代理命令输出采用 PowerShell 7.3+ 引号规则，路径包含百分号时需移动项目后重新生成。
+`[network].acp_proxy = true` 时，仅 ACP 任务请求复用 `[network.socks5]`，不需要 ncat；资源目录及身份查询保持系统网络。默认 `false` 使用系统网络。此项与 SSH 连接的代理开关互不替代。
+
+
+```toml
+[network]
+acp_proxy = false
+```
+
+账户信息仍集中在 `[sco]`，已选工作空间在 `[workspace]`，服务默认值在 `[cci]` / `[acp]`，网络与服务配置分开。旧的 `cci.ssh_proxy` 和 `acp.use_ssh_proxy` 不再读取；使用新模板配置。

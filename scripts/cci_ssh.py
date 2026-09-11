@@ -3,7 +3,7 @@ from pathlib import Path
 import shlex
 import subprocess
 
-from scripts import cli
+from scripts import cli, network
 
 
 def enabled(defaults):
@@ -14,7 +14,7 @@ def enabled(defaults):
 
 
 def public_key(defaults):
-    from scripts.cci import ask, choose
+    from scripts.ui import ask, choose
     configured = cli.string_value(defaults, 'ssh_public_key').strip()
     if configured:
         path = Path(configured).expanduser()
@@ -77,57 +77,16 @@ fi
     script += "printf '%s\\n' " + shlex.quote(key) + ' > /run/slai-ssh/authorized_keys\n'
     script += "printf '%s\\n' " + shlex.quote(config) + ' > /run/slai-ssh/sshd_config\n'
     script += '/usr/sbin/sshd -t -f /run/slai-ssh/sshd_config\n'
-    if command.strip() in ('', 'sleep infinity', 'sleep inf'):
+    if not command.strip():
         script += 'exec /usr/sbin/sshd -D -e -f /run/slai-ssh/sshd_config\n'
     else:
         script += '/usr/sbin/sshd -f /run/slai-ssh/sshd_config\nexec /bin/sh -c ' + shlex.quote(command) + '\n'
     return script
 
 
-def validate_destination(host, port):
-    import ipaddress
-    try:
-        ipaddress.ip_address(host)
-    except (TypeError, ValueError):
-        raise cli.ConfigError('SSH 目标必须是有效 IP 地址。') from None
-    if not str(port).isascii() or not str(port).isdecimal() or not 1 <= int(port) <= 65535:
-        raise cli.ConfigError('SSH 端口无效。')
-
-
-def ncat_args(defaults, host, port):
-    import ipaddress
-    validate_destination(host, port)
-    if not isinstance(defaults, dict):
-        raise cli.ConfigError('[cci] 必须是配置表。')
-    proxy = defaults.get('ssh_proxy', {})
-    if not isinstance(proxy, dict):
-        raise cli.ConfigError('cci.ssh_proxy 必须是配置表。')
-    server = cli.string_value(proxy, 'server').strip()
-    if not server:
-        return None
-    try:
-        ipaddress.ip_address(server)
-    except ValueError:
-        raise cli.ConfigError('SOCKS5 代理 server 必须是有效 IP 地址。') from None
-    proxy_port = proxy.get('port', 1080)
-    if isinstance(proxy_port, bool) or not isinstance(proxy_port, int) or not 1 <= proxy_port <= 65535:
-        raise cli.ConfigError('SOCKS5 代理端口无效。')
-    username = cli.string_value(proxy, 'username')
-    password = cli.string_value(proxy, 'password')
-    if (':' in username or any(c in username + password for c in '\r\n\x00')
-            or bool(username) != bool(password)
-            or len(username.encode()) > 255 or len(password.encode()) > 255):
-        raise cli.ConfigError('SOCKS5 认证信息格式无效；账号密码需同时提供且各不超过 255 字节。')
-    address = f'[{server}]:{proxy_port}' if ':' in server else f'{server}:{proxy_port}'
-    args = ['ncat', '--proxy', address, '--proxy-type', 'socks5']
-    if username:
-        args += ['--proxy-auth', username + ':' + password]
-    return [*args, host, str(port)]
-
-
-def connection_command(defaults, host, port):
+def connection_command(config, host, port):
     import sys
-    proxy_args = ncat_args(defaults, host, port)
+    proxy_args = network.ncat_args(config, host, port)
     args = ['ssh', '-p', str(port)]
     if proxy_args:
         helper = Path(__file__).with_name('ncat_proxy.py').resolve()
@@ -143,33 +102,11 @@ def connection_command(defaults, host, port):
     return format_command([*args, 'root@' + host])
 
 
-def ncat_install_hint():
-    import platform
+def show_connection(config, host, port, name):
     import sys
-    if sys.platform == 'win32':
-        return 'winget install --id Insecure.Nmap -e （或从 https://nmap.org/download.html 安装 Nmap/Ncat）'
-    if sys.platform == 'darwin':
-        return 'brew install nmap'
-    if sys.platform == 'linux':
-        try:
-            release = platform.freedesktop_os_release()
-        except OSError:
-            release = {}
-        families = {release.get('ID', ''), *release.get('ID_LIKE', '').split()}
-        if families & {'debian', 'ubuntu'}:
-            return 'sudo apt update && sudo apt install -y ncat'
-        if families & {'fedora', 'rhel', 'centos', 'rocky', 'almalinux'}:
-            return 'sudo dnf install -y nmap-ncat'
-        if families & {'arch', 'manjaro'}:
-            return 'sudo pacman -S nmap'
-    return '请用当前系统的软件包管理器安装 Ncat（命令名 ncat）。'
-
-
-def show_connection(defaults, host, port, name):
-    import sys
-    command = connection_command(defaults, host, port)
+    command = connection_command(config, host, port)
     from scripts.ssh_probe import report
-    report(defaults, host, port)
+    report(config, host, port)
     if sys.platform == 'win32':
         print('\nSSH 连接命令（PowerShell 7.3+ 复制执行）：\n' + command)
         print('Windows PowerShell 5.1 的嵌套引号行为不同，请在 PowerShell 7.3+ 执行。')
@@ -178,19 +115,3 @@ def show_connection(defaults, host, port, name):
     print('同一命令可用于 VS Code Remote SSH；请确保 VS Code 使用本机 OpenSSH 和相同项目路径。')
     print('非默认私钥请在命令中加 -i，或在 SSH 配置中加 IdentityFile。')
     print('连接信息已生成；实际可用性仍需 SSH 登录验证。')
-
-
-def find_ncat():
-    import os
-    import shutil
-    import sys
-    executable = shutil.which('ncat')
-    if executable or sys.platform != 'win32':
-        return executable
-    for variable in ('ProgramFiles', 'ProgramFiles(x86)', 'LOCALAPPDATA'):
-        root = os.environ.get(variable)
-        if root:
-            candidate = Path(root) / 'Nmap' / 'ncat.exe'
-            if candidate.is_file():
-                return str(candidate)
-    return None

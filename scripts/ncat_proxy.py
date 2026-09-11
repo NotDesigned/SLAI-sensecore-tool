@@ -7,13 +7,13 @@ import sys
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts import cli, cci_ssh
+from scripts import cli, network
 
 
 def proxy_args(config, host, port):
-    args = cci_ssh.ncat_args(config.get('cci', {}), host, port)
+    args = network.ncat_args(config, host, port)
     if args is None:
-        raise cli.ConfigError('未配置 cci.ssh_proxy.server。')
+        raise cli.ConfigError('未配置 network.socks5.server。')
     return args
 
 
@@ -21,9 +21,9 @@ def main():
     try:
         if len(sys.argv) != 3:
             raise cli.ConfigError('代理需要目标 IP 和端口。')
-        executable = cci_ssh.find_ncat()
+        executable = network.find_ncat()
         if not executable:
-            raise cli.ConfigError('未找到 ncat：' + cci_ssh.ncat_install_hint())
+            raise cli.ConfigError('未找到 ncat：' + network.ncat_install_hint())
         args = proxy_args(cli.load_config(), sys.argv[1], sys.argv[2])
         if sys.platform == 'win32':
             return subprocess.run([executable, *args[1:]], check=False).returncode

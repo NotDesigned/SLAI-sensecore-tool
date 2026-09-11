@@ -43,9 +43,11 @@ def load_config(for_init=False):
     for name in ('paths', 'sco'):
         if not isinstance(config.get(name), dict):
             raise ConfigError(f'config.toml 缺少 [{name}] 配置表。')
-    for section in ('install', 'cci', 'docker'):
+    for section in ('install', 'cci', 'docker', 'acp', 'workspace', 'network'):
         if section in config and not isinstance(config[section], dict):
             raise ConfigError(f'[{section}] 必须是配置表。')
+    if 'ssh_proxy' in config.get('cci', {}) or 'use_ssh_proxy' in config.get('acp', {}):
+        raise ConfigError('配置结构已更新：请将代理移至 [network.socks5]，ACP 开关改为 network.acp_proxy。')
     return config
 
 
@@ -96,7 +98,6 @@ def install_components(config, env, executable):
     if failures:
         raise ConfigError('SCO 已安装/配置，但以下组件安装失败：' + '、'.join(failures)
                           + '。请修复后重新选择“安装并配置 SCO”以重试。')
-
 
 
 def install(config):
@@ -202,7 +203,7 @@ def choose_region(config):
     while True:
         value = input(f'输入编号 [0-{len(choices)}]：').strip()
         if value in ('0', 'q'):
-            from scripts.cci import Cancelled
+            from scripts.ui import Cancelled
             raise Cancelled
         if value.isascii() and value.isdecimal() and 1 <= int(value) <= len(choices):
             return choices[int(value) - 1][0]
@@ -295,62 +296,105 @@ def uninstall(config):
     print('SCO CLI 已卸载。')
 
 
-def docker_push(config):
-    from scripts.docker_registry import push_image
-    push_image(config)
+def configure_workspace(config):
+    from scripts.workspace import configure
+    configure(config)
 
 
-def cci_create(config):
-    from scripts.cci import create
-    create(config)
+SERVICES = {'ccr': 'ccr', 'cci': 'cci_service', 'dnat': 'dnat', 'acp': 'acp'}
+MENU_ITEMS = (('install', '安装并配置 SCO'), ('uninstall', '卸载 SCO'),
+              ('ccr', 'CCR 服务'), ('cci', 'CCI 服务'), ('dnat', 'DNAT 服务'),
+              ('acp', 'ACP 服务'), ('workspace', '选择默认工作空间'))
 
 
-def ccr_service(config):
-    from scripts.ccr import menu as ccr_menu
-    ccr_menu(config)
+def guarded(operation):
+    from scripts.ui import Cancelled
+    try:
+        return operation() or 0
+    except Cancelled:
+        print('已取消操作。')
+        return 0
+    except (ConfigError, OSError) as error:
+        print(str(error) if isinstance(error, ConfigError) else
+              '无法读取配置或执行命令，请检查路径、权限和依赖。', file=sys.stderr)
+        return 1
 
 
-def cci_service(config):
-    from scripts.cci_service import main as cci_main
-    cci_main([])
+def run_service(action, args):
+    from importlib import import_module
+    return guarded(lambda: import_module('scripts.' + SERVICES[action]).main(args))
 
 
 def execute(action):
-    from scripts.cci import Cancelled
+    if action in SERVICES:
+        return run_service(action, [])
+
+    def operation():
+        config = load_config(for_init=action == 'install')
+        {'install': install_and_configure, 'uninstall': uninstall,
+         'workspace': configure_workspace}[action](config)
+    return guarded(operation)
+
+
+def menu_title(identity_cache):
+    """Show configured account identity without blocking navigation on network failure."""
+    import hashlib
+    import time
+    from scripts.rest import get_json
+
+    def clean(value):
+        return ''.join(c for c in value if c.isprintable()).strip()
+
     try:
-        config = load_config(for_init=action in ('install', 'init', 'docker-push', 'ccr'))
-        {'install': install_and_configure, 'init': initialize, 'uninstall': uninstall,
-         'docker-push': docker_push, 'cci-create': cci_create, 'ccr': ccr_service,
-         'cci': cci_service}[action](config)
-    except Cancelled:
-        print('已返回。')
-        return 0
-    except (ConfigError, OSError) as error:
-        # OSError text may include user-controlled values; keep it generic.
-        print(str(error) if isinstance(error, ConfigError) else '无法读取配置或执行命令，请检查路径、权限和依赖。', file=sys.stderr)
-        return 1
-    return 0
+        config = load_config()
+        workspace = clean(string_value(config.get('workspace', {}), 'name')) or '未选择'
+        settings = config['sco']
+        ak = string_value(settings, 'access_key_id')
+        sk = string_value(settings, 'access_key_secret')
+        if not ak or not sk:
+            username = '未配置'
+        else:
+            key = hashlib.sha256((ak + '\0' + sk).encode()).hexdigest()
+            now = time.monotonic()
+            if identity_cache.get('key') != key or now >= identity_cache.get('expires', 0):
+                username = '暂时无法确认'
+                ttl = 30
+                try:
+                    identity = get_json(config, 'https://iam.sensecoreapi.cn/iam/idp/v1/me', timeout=3)
+                    value = identity.get('username') if isinstance(identity, dict) else None
+                    if isinstance(value, str) and clean(value):
+                        username = clean(value)
+                        ttl = 300
+                except (ConfigError, OSError):
+                    pass
+                identity_cache.update(key=key, username=username, expires=time.monotonic() + ttl)
+            username = identity_cache['username']
+    except (ConfigError, OSError):
+        username, workspace = '未配置或配置无效', '未选择'
+    return f'SLAI-tool · 用户：{username} · 工作空间：{workspace}'
 
 
 def menu():
+    identity_cache = {}
     while True:
-        print('\nSLAI-tool\n1. 安装并配置 SCO\n2. 卸载 SCO\n3. CCR 服务\n4. CCI 服务\n5. DNAT 服务\n0. 退出')
-        choice = input('请选择 [0-5]：').strip()
-        if choice == '0':
+        print('\n' + menu_title(identity_cache))
+        for index, (_, title) in enumerate(MENU_ITEMS, 1):
+            print(f'{index}. {title}')
+        print('0. 退出')
+        choice = input(f'请选择 [0-{len(MENU_ITEMS)}]：').strip().lower()
+        if choice in ('0', 'q'):
             return 0
-        if choice == '5':
-            try:
-                from scripts.dnat import main as dnat_main
-                dnat_main([])
-            except (ConfigError, OSError) as error:
-                print(str(error) if isinstance(error, ConfigError) else '无法读取规则文件或配置。', file=sys.stderr)
+        if not choice.isascii() or not choice.isdecimal() or not 1 <= int(choice) <= len(MENU_ITEMS):
+            print(f'请输入 0 至 {len(MENU_ITEMS)}。')
             continue
-        action = {'1': 'install', '2': 'uninstall', '3': 'ccr', '4': 'cci'}.get(choice)
-        if action is None:
-            print('请输入 0 至 5。')
-            continue
-        # Reload for every action so edits to config.toml take effect immediately.
-        execute(action)
+        execute(MENU_ITEMS[int(choice) - 1][0])
+
+
+def show_help():
+    print('用法：uv run main.py  （打开交互菜单）')
+    print('服务：ccr、cci、dnat、acp；在服务名后加 --help 查看操作参数。')
+    print('设置：install（安装并配置）、workspace（选择默认工作空间）、uninstall（卸载）')
+    print('示例：uv run main.py cci list\n      uv run main.py acp create --workspace 工作空间名称')
 
 
 def main():
@@ -360,41 +404,14 @@ def main():
     try:
         if len(sys.argv) == 1:
             return menu()
-        if sys.argv[1] == 'cci':
-            from scripts.cci_service import main as cci_main
-            from scripts.cci import Cancelled
-            try:
-                return cci_main(sys.argv[2:])
-            except Cancelled:
-                print('已取消 CCI 操作。')
-                return 0
-            except (ConfigError, OSError) as error:
-                print(str(error) if isinstance(error, ConfigError) else '无法读取 CCI 配置或执行命令。', file=sys.stderr)
-                return 1
-        if sys.argv[1] == 'ccr':
-            from scripts.ccr import main as ccr_main
-            try:
-                return ccr_main(sys.argv[2:])
-            except (ConfigError, OSError) as error:
-                print(str(error) if isinstance(error, ConfigError) else '无法读取 CCR 配置或执行命令。', file=sys.stderr)
-                return 1
-        if sys.argv[1] == 'dnat':
-            from scripts.dnat import main as dnat_main
-            try:
-                return dnat_main(sys.argv[2:])
-            except (ConfigError, OSError) as error:
-                print(str(error) if isinstance(error, ConfigError) else '无法读取规则文件或配置。', file=sys.stderr)
-                return 1
-        if sys.argv[1] == 'eip':
-            from scripts.eip import main as eip_main
-            try:
-                return eip_main(sys.argv[2:])
-            except (ConfigError, OSError) as error:
-                print(str(error) if isinstance(error, ConfigError) else '无法执行 EIP 命令，请检查 SCO 配置及组件安装。', file=sys.stderr)
-                return 1
-        if len(sys.argv) == 2 and sys.argv[1] in ('install', 'init', 'uninstall', 'docker-push', 'cci-create', 'ccr'):
+        if sys.argv[1] in ('-h', '--help'):
+            show_help()
+            return 0
+        if sys.argv[1] in SERVICES:
+            return run_service(sys.argv[1], sys.argv[2:])
+        if len(sys.argv) == 2 and sys.argv[1] in ('install', 'uninstall', 'workspace'):
             return execute(sys.argv[1])
-        print('用法：uv run main.py [install|init|uninstall|ccr|cci|dnat|docker-push|cci-create]；EIP：uv run main.py eip --zone <可用区> <命令>（无参数打开菜单）', file=sys.stderr)
+        print('未知命令或参数；使用 uv run main.py --help 查看用法。', file=sys.stderr)
         return 2
     except (EOFError, KeyboardInterrupt):
         print('\n已退出。')

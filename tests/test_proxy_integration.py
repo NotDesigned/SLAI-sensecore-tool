@@ -11,20 +11,21 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from scripts import cci_ssh, ncat_proxy, cli
 
+
+from scripts import network, cloud, cci_ssh, ncat_proxy, cli
 
 class ProxyTests(unittest.TestCase):
     def test_missing_ncat_reports_platform_install_command(self):
         with patch.object(sys, 'argv', ['proxy', '192.0.2.1', '22']), \
              patch.object(shutil, 'which', return_value=None), \
-             patch.object(cci_ssh, 'ncat_install_hint', return_value='brew install nmap'), \
+             patch.object(network, 'ncat_install_hint', return_value='brew install nmap'), \
              contextlib.redirect_stderr(io.StringIO()) as output:
             self.assertEqual(ncat_proxy.main(), 1)
         self.assertIn('brew install nmap', output.getvalue())
 
     def test_proxy_exec_uses_config_and_preserves_streams(self):
-        config = {'cci': {'ssh_proxy': {'server': '192.0.2.2', 'username': 'user', 'password': 'test%h'}}}
+        config = {'cci': {}, 'network': {'socks5': {'server': '192.0.2.2', 'username': 'user', 'password': 'test%h'}}}
         with patch.object(sys, 'argv', ['proxy', '192.0.2.1', '22']), \
              patch.object(shutil, 'which', return_value='/ncat'), \
              patch.object(cli, 'load_config', return_value=config), patch.object(os, 'execv') as execute:
@@ -36,7 +37,7 @@ class ProxyTests(unittest.TestCase):
 
     def test_generated_command_handles_percent_and_spaces_in_paths(self):
         import shlex
-        defaults = {'ssh_proxy': {'server': '192.0.2.2'}}
+        defaults = {'network': {'socks5': {'server': '192.0.2.2'}}}
         with patch.object(sys, 'executable', '/tmp/Python %h/bin/python'), \
              patch.object(cci_ssh, '__file__', '/tmp/project %p/cci_ssh.py'):
             command = cci_ssh.connection_command(defaults, '192.0.2.1', 22)
@@ -92,10 +93,10 @@ class ProxyTests(unittest.TestCase):
                     conn.sendall(b'world')
                     conn.shutdown(socket.SHUT_WR)
 
-            defaults = {'ssh_proxy': {'server': '127.0.0.1', 'port': proxy_port, 'username': 'user', 'password': "test%h ' $()"}}
+            defaults = {'network': {'socks5': {'server': '127.0.0.1', 'port': proxy_port, 'username': 'user', 'password': "test%h ' $()"}}}
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(serve)
-                args = cci_ssh.ncat_args(defaults, '192.0.2.1', 22)
+                args = network.ncat_args(defaults, '192.0.2.1', 22)
                 # File stdin exercises EOF/half-close behavior, not just a banner probe.
                 with tempfile.TemporaryFile() as stream:
                     stream.write(b'hello')

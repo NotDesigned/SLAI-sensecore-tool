@@ -21,6 +21,10 @@ jobs:
       - name: Windows compatibility and native PowerShell suite
         if: runner.os == 'Windows'
         run: uv run python -m unittest discover -s tests -p test_windows.py -v
+      - name: Shared transport and workflow checks on Windows
+        if: runner.os == 'Windows'
+        run: uv run python -m unittest discover -s tests -p test_shared.py -v
       - run: uv run python -m compileall -q scripts
       - run: uv run main.py cci --help
       - run: uv run main.py dnat --help
+      - run: uv run main.py acp --help

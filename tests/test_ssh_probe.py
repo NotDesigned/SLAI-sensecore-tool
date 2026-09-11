@@ -6,8 +6,9 @@ import time
 import unittest
 from unittest.mock import Mock, patch
 
-from scripts import ssh_probe, cci_ssh
 
+
+from scripts import network, ssh_probe, cci_ssh
 
 class ProbeTests(unittest.TestCase):
     def test_direct_ssh_banner_over_loopback(self):
@@ -37,10 +38,10 @@ class ProbeTests(unittest.TestCase):
         self.assertIn('sshd', output.getvalue())
 
     def test_configured_proxy_is_used_and_child_is_cleaned_up(self):
-        defaults = {'ssh_proxy': {'server': '192.0.2.2', 'username': 'u', 'password': 'hidden'}}
+        defaults = {'network': {'socks5': {'server': '192.0.2.2', 'username': 'u', 'password': 'hidden'}}}
         child = Mock(stdin=io.BytesIO(), stdout=io.BytesIO(b'SSH-2.0-test\r\n'))
         child.poll.return_value = None
-        with patch.object(cci_ssh, 'find_ncat', return_value='/ncat'), \
+        with patch.object(network, 'find_ncat', return_value='/ncat'), \
              patch.object(ssh_probe.subprocess, 'Popen', return_value=child) as popen, \
              patch.object(socket, 'create_connection') as direct:
             self.assertEqual(ssh_probe.check(defaults, '192.0.2.1', 22), (True, 'ssh'))
@@ -50,8 +51,8 @@ class ProbeTests(unittest.TestCase):
         child.wait.assert_called_once()
 
     def test_missing_ncat_does_not_try_direct_connection(self):
-        with patch.object(cci_ssh, 'find_ncat', return_value=None), patch.object(socket, 'create_connection') as direct:
-            self.assertEqual(ssh_probe.check({'ssh_proxy': {'server': '192.0.2.2'}}, '192.0.2.1', 22), (False, 'ncat_missing'))
+        with patch.object(network, 'find_ncat', return_value=None), patch.object(socket, 'create_connection') as direct:
+            self.assertEqual(ssh_probe.check({'network': {'socks5': {'server': '192.0.2.2'}}}, '192.0.2.1', 22), (False, 'ncat_missing'))
         direct.assert_not_called()
 
     def test_banner_check_rejects_http(self):
@@ -64,7 +65,7 @@ class ProbeTests(unittest.TestCase):
                 return b''
         child = Mock(stdin=io.BytesIO(), stdout=SlowStream())
         child.poll.return_value = None
-        with patch.object(cci_ssh, 'find_ncat', return_value='/ncat'), \
+        with patch.object(network, 'find_ncat', return_value='/ncat'), \
              patch.object(ssh_probe.subprocess, 'Popen', return_value=child):
-            self.assertEqual(ssh_probe.check({'ssh_proxy': {'server': '192.0.2.2'}}, '192.0.2.1', 22, timeout=0.01), (False, 'timeout'))
+            self.assertEqual(ssh_probe.check({'network': {'socks5': {'server': '192.0.2.2'}}}, '192.0.2.1', 22, timeout=0.01), (False, 'timeout'))
         child.kill.assert_called_once()

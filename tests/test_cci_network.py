@@ -5,8 +5,9 @@ import copy
 import unittest
 from unittest.mock import Mock, patch
 
-from scripts import cci_network as network, cli
 
+
+from scripts import cci_network as network, cloud, cli
 
 class CciNetworkTests(unittest.TestCase):
     def test_existing_rules_are_combined_without_an_eip_selection(self):
@@ -20,7 +21,7 @@ class CciNetworkTests(unittest.TestCase):
         client = Mock()
         client.resources.return_value = eips
         document = {'display_name': 'app', 'resource_pool': {'available_zone': 'zone', 'vpc_id': 'vpc'}}
-        with patch.object(network.cci, 'Client', return_value=client):
+        with patch.object(cloud, 'Client', return_value=client):
             with patch.object(network.dnat, 'Api', side_effect=lambda config, eip: clients[eip['name']]):
                 with patch('builtins.input', side_effect=['3', '1', '']), contextlib.redirect_stdout(io.StringIO()) as output:
                     plan = network.plan_dnat({}, document, '')
@@ -101,7 +102,7 @@ class CciNetworkTests(unittest.TestCase):
         api.request.return_value = {'id': 'user', 'tenant_id': 'tenant'}
         api.list.return_value = []
         document = {'display_name': 'app', 'resource_pool': {'available_zone': 'zone', 'vpc_id': 'vpc'}}
-        with patch.object(network.cci, 'Client', return_value=client), \
+        with patch.object(cloud, 'Client', return_value=client), \
              patch.object(network.dnat, 'Api', return_value=api), \
              patch.object(network.dnat, 'prepare', side_effect=lambda api, body, rows: body), \
              patch('builtins.input', side_effect=['', '1', '', '192.0.2.1']) as prompt, \
@@ -117,9 +118,9 @@ class CciNetworkTests(unittest.TestCase):
         client.resources.return_value = [eip, {**eip, 'zone': 'wrong'}]
         api.request.return_value = {'id': 'user', 'tenant_id': 'tenant'}
         api.list.return_value = [{'properties': {'external_ip': '192.0.2.1', 'external_port': '22220', 'protocol': 'tcp'}}]
-        body = {'name': 'app-dnat', 'properties': {'external_ip': '192.0.2.1'}}
+        body = {'name': 'app-dnat', 'properties': {'external_ip': '192.0.2.1', 'external_port': '22222', 'internal_port': '22'}}
         document = {'display_name': 'app', 'resource_pool': {'available_zone': 'zone', 'vpc_id': 'vpc'}}
-        with patch.object(network.cci, 'Client', return_value=client), patch.object(network.dnat, 'Api', return_value=api):
+        with patch.object(cloud, 'Client', return_value=client), patch.object(network.dnat, 'Api', return_value=api):
             with patch.object(network.dnat, 'prepare', return_value=body) as prepare:
                 with patch('builtins.input', side_effect=['2', '1', '22222', '22']), contextlib.redirect_stdout(io.StringIO()):
                     plan = network.plan_dnat({}, document, '8080')

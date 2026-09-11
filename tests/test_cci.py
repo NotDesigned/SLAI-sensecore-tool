@@ -9,8 +9,9 @@ from unittest.mock import Mock, patch
 
 import yaml
 
-from scripts import cci, cli
 
+
+from scripts import network, ui, cloud, cci, cli
 
 SPEC_TABLE = '''+---+
 | WORKER SPEC | CHIP MODEL | CHIP COUNT | CPU | VCPU COUNT | MEMORY(GIB) | ZONE |
@@ -40,7 +41,7 @@ class CciTests(unittest.TestCase):
             {'name': 'afs-share-01e', 'id': 'chosen', 'zone': 'cn-sh-01e'},
             {'name': 'afs-share-01g', 'id': 'wrong-zone', 'zone': 'cn-sh-01g'}]
         with patch('builtins.input', side_effect=['', '', '', '', '']):
-            mounts = cci.select_mounts(client, 'cn-sh-01e')
+            mounts = cloud.select_mounts(client, 'cn-sh-01e')
         self.assertEqual(mounts[0]['id'], 'chosen')
         self.assertEqual(mounts[0]['subdir'], '/L202599999')
         self.assertEqual(mounts[0]['mount_path'], '/data')
@@ -52,7 +53,7 @@ class CciTests(unittest.TestCase):
             {'name': 'only-volume', 'id': 'chosen', 'zone': 'cn-sh-01e'},
             {'name': 'other-zone', 'id': 'other', 'zone': 'cn-sh-01g'}]
         with patch('builtins.input', side_effect=['', '', '', '']) as prompt:
-            mounts = cci.select_mounts(client, 'cn-sh-01e')
+            mounts = cloud.select_mounts(client, 'cn-sh-01e')
         self.assertEqual(mounts[0]['id'], 'chosen')
         self.assertEqual(mounts[0]['mount_path'], '/data')
         self.assertEqual(mounts[0]['subdir'], '/my-user')
@@ -61,12 +62,12 @@ class CciTests(unittest.TestCase):
     def test_no_mount_skips_identity_and_storage_requests(self):
         client = Mock()
         with patch('builtins.input', return_value='1'):
-            self.assertEqual(cci.select_mounts(client, 'cn-sh-01e'), [])
+            self.assertEqual(cloud.select_mounts(client, 'cn-sh-01e'), [])
         client.current_username.assert_not_called()
         client.resources.assert_not_called()
 
     def test_invalid_cloud_username_is_config_error(self):
-        client = object.__new__(cci.Client)
+        client = object.__new__(cloud.Client)
         client.config = {}
         with patch('scripts.rest.get_json', return_value={'username': '../invalid'}):
             with self.assertRaises(cli.ConfigError):
@@ -81,7 +82,7 @@ class CciTests(unittest.TestCase):
         self.addCleanup(self.output.__exit__, None, None, None)
 
     def client(self):
-        client = cci.Client.__new__(cci.Client)
+        client = cloud.Client.__new__(cloud.Client)
         client.flags = []
         client.executable = Path('/fake/sco')
         client.env = {}
@@ -90,47 +91,47 @@ class CciTests(unittest.TestCase):
     def test_choose_retries_and_returns_original_object(self):
         items = [{'name': 'a'}, {'name': 'b'}]
         with patch('builtins.input', side_effect=['3', '-1', 'x', '2']):
-            self.assertIs(cci.choose('资源', items), items[1])
+            self.assertIs(ui.choose('资源', items), items[1])
 
     def test_cancel_label_is_generic_and_not_duplicated(self):
         with patch('builtins.input', return_value='1'), contextlib.redirect_stdout(io.StringIO()) as output:
-            cci.choose('确认删除', ['取消', '删除'], default='取消')
+            ui.choose('确认删除', ['取消', '删除'], default='取消')
         self.assertNotIn('q.', output.getvalue())
         self.assertNotIn('取消创建', output.getvalue())
         with patch('builtins.input', return_value='1'), contextlib.redirect_stdout(io.StringIO()) as output:
-            cci.choose('资源', ['a'])
+            ui.choose('资源', ['a'])
         self.assertIn('0. 返回', output.getvalue())
 
     def test_zero_returns_from_resource_and_action_menus(self):
-        with patch('builtins.input', return_value='0'), self.assertRaises(cci.Cancelled):
-            cci.choose('资源', ['a'])
+        with patch('builtins.input', return_value='0'), self.assertRaises(ui.Cancelled):
+            ui.choose('资源', ['a'])
         for label in ('取消', '返回列表'):
             with patch('builtins.input', return_value='0'):
-                self.assertEqual(cci.choose('操作', [label, '删除'], default=label), label)
+                self.assertEqual(ui.choose('操作', [label, '删除'], default=label), label)
             with patch('builtins.input', return_value='1'):
-                self.assertEqual(cci.choose('操作', [label, '删除'], default=label), '删除')
+                self.assertEqual(ui.choose('操作', [label, '删除'], default=label), '删除')
 
     def test_empty_and_cancel_and_default(self):
         with self.assertRaises(cli.ConfigError):
-            cci.choose('资源', [])
-        with patch('builtins.input', return_value='q'), self.assertRaises(cci.Cancelled):
-            cci.choose('资源', ['a'])
+            ui.choose('资源', [])
+        with patch('builtins.input', return_value='q'), self.assertRaises(ui.Cancelled):
+            ui.choose('资源', ['a'])
         with patch('builtins.input', return_value=''):
-            self.assertEqual(cci.choose('资源', ['a', 'b'], default='b'), 'b')
+            self.assertEqual(ui.choose('资源', ['a', 'b'], default='b'), 'b')
 
     def test_wrapped_spec_table_preserves_ids(self):
-        rows = cci.parse_specs(SPEC_TABLE)
+        rows = cloud.parse_specs(SPEC_TABLE)
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]['CPU'], 'Intel Xeon 8468')
         self.assertEqual(rows[1]['WORKER SPEC'], 'gpu-large-wrapped')
         with self.assertRaises(cli.ConfigError):
-            cci.parse_specs('unexpected output')
+            cloud.parse_specs('unexpected output')
 
     def test_resource_key_from_response_without_printing_debug_credentials(self):
         for key in ['nvidia.com/gpu', 'nvidia.com/mig-3g.40gb', 'amd.com/gpu']:
             raw = json.dumps({'message': 'Authorization: SECRET'}) + '\n' + spec_response(key)
             with contextlib.redirect_stdout(io.StringIO()) as output:
-                rows = cci.enrich_specs(raw)
+                rows = cloud.enrich_specs(raw)
             self.assertEqual(rows[1]['RESOURCE KEY'], key)
             self.assertNotIn('SECRET', output.getvalue())
 
@@ -138,15 +139,15 @@ class CciTests(unittest.TestCase):
         for raw in [SPEC_TABLE, spec_response(''), spec_response('bad key'),
                     spec_response().replace('\\"vcpu_allocatable\\": 8', '\\"vcpu_allocatable\\": 16')]:
             with self.assertRaises(cli.ConfigError):
-                cci.enrich_specs(raw)
+                cloud.enrich_specs(raw)
 
     def test_gpu_prepare_never_prompts_for_resource_key(self):
         client = Mock()
         client.resources.return_value = [{'name': 'ws', 'id': 'ws'}]
         client.clusters.return_value = [{'name': 'pool', 'zone': 'cn-sh-01e', 'properties': {'vpc_id': 'vpc'}}]
-        client.specs.return_value = cci.enrich_specs(spec_response())
+        client.specs.return_value = cloud.enrich_specs(spec_response())
         answers = ['1', '1', '2', 'test-gpu', 'echo ok', '1', '1', '1', '']
-        with patch('builtins.input', side_effect=answers) as prompt, patch.object(cci, 'select_image', return_value='r.test/a:v1'):
+        with patch('builtins.input', side_effect=answers) as prompt, patch.object(cloud, 'select_image', return_value='r.test/a:v1'):
             _, _, _, doc = cci.prepare(client, {'accelerator_key': 'wrong/legacy', 'ssh_enabled': False})
         request = doc['template']['containers'][0]['resource_request']
         self.assertEqual(request['nvidia.com/mig-3g.40gb'], '1')
@@ -161,7 +162,7 @@ class CciTests(unittest.TestCase):
             self.assertEqual(len(client.resources('test')), 101)
         self.assertEqual(read.call_args.args[0][-1], '2')
         with patch.object(client, 'read', return_value=json.dumps(first)):
-            with self.assertRaisesRegex(cli.ConfigError, '分页重复'):
+            with self.assertRaisesRegex(cli.ConfigError, '重复返回整页'):
                 client.resources('test')
         with patch.object(client, 'read', return_value='{}'), self.assertRaises(cli.ConfigError):
             client.resources('test')
@@ -200,11 +201,12 @@ class CciTests(unittest.TestCase):
         volume = {'name': 'disk', 'id': 'disk-id', 'zone': 'cn-sh-01e'}
         client.resources.side_effect = [[workspace], [volume, {**volume, 'zone': 'other'}]]
         client.clusters.return_value = [cluster]
-        client.specs.return_value = cci.parse_specs(SPEC_TABLE)
+        client.specs.return_value = cloud.parse_specs(SPEC_TABLE)
         answers = ['1', '1', '1', 'test-app', 'echo ok', '1', '2', '/data', '/', '1', '1', '8080']
-        with patch('builtins.input', side_effect=answers), patch.object(cci, 'select_image', return_value='registry.test/app:v1'):
+        with patch('builtins.input', side_effect=answers), patch.object(cloud, 'select_image', return_value='registry.test/app:v1'):
             workspace_name, name, ports, document = cci.prepare(client, {'ssh_enabled': False})
         self.assertEqual((workspace_name, name, ports), ('ws', 'test-app', '8080'))
+        self.assertEqual(document['display_name'], 'test-app')
         client.scope.assert_called_once_with(workspace)
         client.specs.assert_called_once_with('ws', 'pool')
         self.assertEqual(document['resource_pool']['vpc_id'], 'vpc')
@@ -216,20 +218,20 @@ class CciTests(unittest.TestCase):
     def test_local_images_excludes_dangling_and_local_only_tags(self):
         images = [{'Repository': repo, 'Tag': tag} for repo, tag in
                   [('local', 'v1'), ('registry.test/app', 'v1'), ('registry.test/app', '<none>')]]
-        with patch.object(cci.shutil, 'which', return_value='/docker'):
+        with patch.object(cloud.shutil, 'which', return_value='/docker'):
             with patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '\n'.join(map(json.dumps, images)))):
-                self.assertEqual(cci.local_images(), ['registry.test/app:v1'])
+                self.assertEqual(cloud.local_images(), ['registry.test/app:v1'])
 
     def test_save_only_and_cancel_never_submit(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(cli, 'ROOT', Path(directory)):
-            with patch.object(cci, 'Client'), patch.object(cci, 'prepare', return_value=('ws', 'app', '', {'replicas': 1})):
+            with patch.object(cloud, 'Client'), patch.object(cci, 'prepare', return_value=('ws', 'app', '', {'replicas': 1})):
                 with patch('builtins.input', return_value=''), patch.object(cli, 'run') as run:
                     cci.create({'cci': {}})
                 run.assert_not_called()
                 path = next((Path(directory) / '.cache' / 'cci').glob('*.yaml'))
                 self.assertEqual(yaml.safe_load(path.read_text()), {'replicas': 1})
                 self.assertEqual(path.stat().st_mode & 0o777, 0o600)
-            with patch.object(cci, 'Client'), patch.object(cci, 'prepare', side_effect=cci.Cancelled):
+            with patch.object(cloud, 'Client'), patch.object(cci, 'prepare', side_effect=ui.Cancelled):
                 with patch.object(cli, 'run') as run:
                     cci.create({})
                 run.assert_not_called()
@@ -237,7 +239,7 @@ class CciTests(unittest.TestCase):
     def test_submit_uses_exact_saved_document_and_ports(self):
         client = self.client()
         with tempfile.TemporaryDirectory() as directory, patch.object(cli, 'ROOT', Path(directory)):
-            with patch.object(cci, 'Client', return_value=client):
+            with patch.object(cloud, 'Client', return_value=client):
                 with patch.object(cci, 'prepare', return_value=('ws', 'app', '8080', {'replicas': 1})):
                     with patch('builtins.input', return_value='2'), patch.object(cli, 'run') as run:
                         cci.create({})

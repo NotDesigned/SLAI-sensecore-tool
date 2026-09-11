@@ -43,11 +43,30 @@ image = "registry.cn-sh-01.sensecore.cn/lepton-trainingjob/ngc-pytorch:25.06-cu1
 ssh_enabled = true
 # 公钥路径；留空时查找 ~/.ssh/*.pub，多项时列表选择。绝不填写私钥。
 ssh_public_key = ""
-# SSH 模式下留空（或 sleep infinity）以前台 sshd 保持运行；非空则启动 sshd 后执行该命令。
+# SSH 模式下留空以前台 sshd 保持运行；非空则启动 sshd 后执行该命令。
 command = ""
 
-# SOCKS5 代理；server 留空则直连。连接时从本文件读取，输出命令不含凭据。
-[cci.ssh_proxy]
+[acp]
+# ACP 默认使用系统网络；代理开关见 [network]。
+# 留空时使用默认 NGC 镜像；任务命令始终交互确认。
+image = ""
+command = ""
+
+[workspace]
+# 主菜单 7 选择后自动记录完整资源范围；留空时各服务交互选择。
+name = ""
+region = ""
+subscription_name = ""
+resource_group_name = ""
+zone = ""
+id = ""
+
+# 统一网络配置；SSH 自动使用已填写的 SOCKS5，ACP 单独选择是否使用。
+[network]
+acp_proxy = false
+
+# server 留空则 SSH 直连，用户名和密码须同时填写或同时留空。
+[network.socks5]
 server = ""
 port = 1080
 username = ""

@@ -3,15 +3,16 @@ import io
 import unittest
 from unittest.mock import Mock, patch
 
-from scripts import cli, cci_service, service_menu
 
+
+from scripts import cloud, ui, cli, cci_service
 
 class CciServiceTests(unittest.TestCase):
     def setUp(self):
         self.uid = '11111111-1111-4111-8111-111111111111'
         self.ws = {'name': 'ws', 'region': 'cn-sh-01', 'subscription_name': 'sub',
                    'resource_group_name': 'group', 'zone': 'cn-sh-01z'}
-        self.app = {'name': 'mine', 'ownership': {'user_id': self.uid}}
+        self.app = {'name': 'mine', 'uid': 'app-uid', 'ownership': {'user_id': self.uid}}
 
     def test_list_filters_identity_across_pages(self):
         data = [{'id': self.uid}, {'apps': [self.app], 'total_size': 2, 'next_page_token': '2'},
@@ -19,6 +20,21 @@ class CciServiceTests(unittest.TestCase):
         with patch.object(cci_service, 'get_json', side_effect=data) as get:
             self.assertEqual(cci_service.my_apps({}, self.ws), [self.app])
         self.assertIn('page_token=2', get.call_args.args[1])
+        self.assertIn('/appsOwn?', get.call_args.args[1])
+
+    def test_invalid_rows_and_overlapping_pages(self):
+        with patch.object(cci_service, 'get_json', side_effect=[{'id': self.uid}, {'apps': [{}]}]):
+            with self.assertRaisesRegex(cli.ConfigError, '缺少名称'):
+                cci_service.my_apps({}, self.ws)
+        other = {**self.app, 'name': 'second', 'uid': 'second-uid'}
+        pages = [{'id': self.uid}, {'apps': [self.app], 'next_page_token': '2'},
+                 {'apps': [self.app, other]}]
+        with patch.object(cci_service, 'get_json', side_effect=pages):
+            self.assertEqual(cci_service.my_apps({}, self.ws), [self.app, other])
+        pages[-1] = {'apps': [self.app], 'next_page_token': '3'}
+        with patch.object(cci_service, 'get_json', side_effect=pages):
+            with self.assertRaisesRegex(cli.ConfigError, '重复返回整页'):
+                cci_service.my_apps({}, self.ws)
 
     def test_unknown_identity_does_not_show_all_apps(self):
         with patch.object(cci_service, 'get_json', return_value={}) as get:
@@ -30,7 +46,7 @@ class CciServiceTests(unittest.TestCase):
         client = Mock()
         client.command.side_effect = lambda args: ['/sco', *args]
         with patch.object(cci_service, 'my_apps', side_effect=[[self.app], []]):
-            with patch.object(cci_service.cci, 'Client', return_value=client), patch.object(cli, 'run') as run:
+            with patch.object(cloud, 'Client', return_value=client), patch.object(cli, 'run') as run:
                 cci_service.delete_app({}, self.ws, 'mine')
         client.scope.assert_called_once_with(self.ws)
         self.assertEqual(run.call_args.args[0], ['/sco', 'cci', 'apps', 'delete', 'mine', '--workspace-name', 'ws'])
@@ -42,13 +58,13 @@ class CciServiceTests(unittest.TestCase):
     def test_submenu_returns_after_operations_and_errors(self):
         execute = Mock(side_effect=[None, cli.ConfigError('failure'), None])
         with patch('builtins.input', side_effect=['bad', '1', '2', '3', '0']), contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(service_menu.menu('service', execute), 0)
+            self.assertEqual(ui.menu('service', execute), 0)
         self.assertEqual([x.args[0] for x in execute.call_args_list], [['create'], ['list'], ['delete']])
 
     def test_declining_delete_does_not_mutate(self):
         client = Mock()
         client.resources.return_value = [self.ws]
-        with patch.object(cli, 'load_config', return_value={}), patch.object(cci_service.cci, 'Client', return_value=client):
+        with patch.object(cli, 'load_config', return_value={}), patch.object(cloud, 'Client', return_value=client):
             with patch.object(cci_service, 'my_apps', return_value=[self.app]), patch.object(cci_service, 'delete_app') as delete:
                 with patch('builtins.input', return_value=''), contextlib.redirect_stdout(io.StringIO()):
                     cci_service.main(['delete', '--workspace', 'ws', '--name', 'mine'])
@@ -69,7 +85,7 @@ class CciServiceTests(unittest.TestCase):
 
     def test_stop_checks_completion_and_already_stopped(self):
         with patch.object(cci_service, 'my_apps', side_effect=[[self.app], [{**self.app, 'state': 'SUSPENDED'}]]), \
-             patch.object(cci_service.cci, 'Client') as client, patch.object(cli, 'run') as run, \
+             patch.object(cloud, 'Client') as client, patch.object(cli, 'run') as run, \
              contextlib.redirect_stdout(io.StringIO()):
             cci_service.stop_app({}, self.ws, 'mine')
         self.assertEqual(client.return_value.command.call_args.args[0],
@@ -102,12 +118,14 @@ class CciServiceTests(unittest.TestCase):
                  patch.object(cli, 'ROOT', Path(directory)), \
                  patch.object(cci_service, 'owned_app', return_value=source), \
                  patch.object(cci_service, 'get_json', side_effect=[source, {'ports': [{'port': 22, 'target_port': 22}]}, cci_service.RestError(404)]), \
-                 patch.object(cci_service.cci, 'Client') as client, patch.object(cli, 'run') as run, \
+                 patch.object(cloud, 'Client') as client, patch.object(cli, 'run') as run, \
                  patch('builtins.input', side_effect=['new-copy', '2' if submit else '']), \
                  contextlib.redirect_stdout(io.StringIO()):
                 cci_service.copy_app({}, self.ws, 'mine')
                 files = list(Path(directory).rglob('*.yaml'))
                 self.assertEqual(len(files), 1)
+                import yaml
+                self.assertEqual(yaml.safe_load(files[0].read_text())['display_name'], 'new-copy')
                 self.assertEqual(files[0].stat().st_mode & 0o777, 0o600)
                 if submit:
                     run.assert_called_once()
@@ -125,3 +143,13 @@ class CciServiceTests(unittest.TestCase):
                 with self.assertRaises(cli.ConfigError):
                     operation({}, self.ws, 'mine', expected=source)
             run.assert_not_called()
+
+    def test_stop_does_not_accept_a_replacement_resource(self):
+        with patch.object(cci_service, 'my_apps', side_effect=[[self.app], [{**self.app, 'uid': 'replacement', 'state': 'SUSPENDED'}]]), \
+             patch.object(cloud, 'Client'), patch.object(cli, 'run'):
+            with self.assertRaisesRegex(cli.ConfigError, '身份已变化'):
+                cci_service.stop_app({}, self.ws, 'mine', expected=self.app)
+
+    def test_missing_uid_is_not_accepted(self):
+        with self.assertRaisesRegex(cli.ConfigError, 'UID'):
+            cci_service.check_selected({'name':'missing'}, None)

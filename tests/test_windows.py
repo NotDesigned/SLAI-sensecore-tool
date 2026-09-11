@@ -11,8 +11,9 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from scripts import cli, cci_ssh, commands, ncat_proxy, windows
 
+
+from scripts import network, cloud, cli, cci_ssh, commands, ncat_proxy, windows
 
 class WindowsTests(unittest.TestCase):
     def config(self, root):
@@ -66,7 +67,7 @@ class WindowsTests(unittest.TestCase):
                 windows.install({})
 
     def test_proxy_output_is_powershell_and_hides_credentials(self):
-        config = {'ssh_proxy': {'server': '192.0.2.2', 'username': 'secret-user', 'password': 'secret-pass'}}
+        config = {'network': {'socks5': {'server': '192.0.2.2', 'username': 'secret-user', 'password': 'secret-pass'}}}
         with patch.object(sys, 'platform', 'win32'), patch.object(sys, 'executable', r'C:\Program Files\Python\python.exe'):
             command = cci_ssh.connection_command(config, '192.0.2.1', 39587)
         self.assertTrue(command.startswith('ssh '))
@@ -76,8 +77,8 @@ class WindowsTests(unittest.TestCase):
 
     def test_proxy_waits_for_ncat_on_windows(self):
         with patch.object(sys, 'platform', 'win32'), patch.object(sys, 'argv', ['proxy', '192.0.2.1', '22']), \
-             patch.object(cci_ssh, 'find_ncat', return_value='ncat.exe'), \
-             patch.object(cli, 'load_config', return_value={'cci': {'ssh_proxy': {'server': '192.0.2.2'}}}), \
+             patch.object(network, 'find_ncat', return_value='ncat.exe'), \
+             patch.object(cli, 'load_config', return_value={'cci': {}, 'network': {'socks5': {'server': '192.0.2.2'}}}), \
              patch.object(subprocess, 'run', return_value=Mock(returncode=7)) as run, \
              patch.object(os, 'execv') as execute:
             self.assertEqual(ncat_proxy.main(), 7)
@@ -112,7 +113,7 @@ class WindowsTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == 'win32' and shutil.which('pwsh') and shutil.which('ssh'), 'Requires native Windows OpenSSH and PowerShell 7')
     def test_native_ssh_parses_generated_proxy(self):
-        defaults = {'ssh_proxy': {'server': '192.0.2.2'}}
+        defaults = {'network': {'socks5': {'server': '192.0.2.2'}}}
         command = cci_ssh.connection_command(defaults, '192.0.2.1', 39587)
         command = command.replace('ssh ', 'ssh -G -F NUL ', 1)
         result = subprocess.run(['pwsh', '-NoProfile', '-NonInteractive', '-Command', command],

@@ -1,6 +1,6 @@
 # SLAI-tool
 
-面向 SLAI 账户的 SenseCore 命令行工具，用交互菜单管理镜像、云容器和 DNAT 规则。支持 Windows x64、Linux、macOS，所有配置保存在项目根目录的 `config.toml`。
+面向 SLAI 账户的 SenseCore 命令行工具，用交互菜单管理镜像、云容器、长任务和 DNAT 规则。支持 Windows x64、Linux、macOS，所有配置保存在项目根目录的 `config.toml`。
 
 | 功能 | 支持的操作 |
 | --- | --- |
@@ -8,7 +8,7 @@
 | CCR | 上传镜像、列出可访问命名空间内的镜像 |
 | CCI | 创建、列出、停止、复制、删除 |
 | DNAT | 创建、列出、详情、绑定 CCI、解绑、删除 |
-| ACP | [调研与接入准备](docs/ACP-INTEGRATION.md)，尚未加入菜单 |
+| ACP | 创建、列出、详情、停止、复制、删除 |
 
 ## 快速开始
 
@@ -28,12 +28,18 @@ uv 会准备 Python 3.11+ 及项目依赖。首次运行需联网；SCO 安装�
 3. CCR 服务
 4. CCI 服务
 5. DNAT 服务
+6. ACP 服务
+7. 选择默认工作空间
 0. 退出
 ```
 
 首次选择 **1. 安装并配置 SCO**：安装主程序 → 配置本机环境变量和 PATH → 补齐账户信息并初始化 → 安装 EIP、CCR 组件。缺少 `config.toml` 时会基于[配置模板](config.example.toml)创建，不必提前填写全部字段。
 
 编号菜单统一用 **`0` 返回**，确认页的 `0` 为取消，主菜单的 `0` 为退出。文字输入可用 `q` 取消，列表页可用 `r` 刷新。
+
+### 默认工作空间
+
+主菜单标题显示当前登录用户名和默认工作空间。选择 **7. 选择默认工作空间**（或 `uv run main.py workspace`）将选择保存到根目录 `config.toml` 的 `[workspace]`，重启后仍有效。CCI 创建、列表及实例操作和 ACP 服务都会自动使用它，无需重复选择。通过主菜单 7 随时切换；命令行 `--workspace` 可临时覆盖 CCI 或 ACP 操作的工作空间，不改变保存值。每次仍校验云端资源身份；默认值失效时重新选择，不静默切换到其他工作空间。CCR 和 DNAT 本身按命名空间或网络资源组织，不额外受此筛选。
 
 ### Windows 使用说明
 
@@ -45,7 +51,7 @@ uv 会准备 Python 3.11+ 及项目依赖。首次运行需联网；SCO 安装�
 
 ## 创建 CCI 并连接
 
-进入 **CCI 服务 → 创建**，选择工作空间、资源池和规格，确认镜像、存储及 DNAT 入口，最后检查生成的配置并选择“提交创建”。默认先保存配置，不会直接创建云资源。
+进入 **CCI 服务 → 创建**，使用默认工作空间，选择资源池和规格，确认镜像、存储及 DNAT 入口，最后检查配置摘要并选择“提交创建”。默认先保存配置，不会直接创建云资源。
 
 | 项目 | 默认行为 |
 | --- | --- |
@@ -68,7 +74,7 @@ uv 会准备 Python 3.11+ 及项目依赖。首次运行需联网；SCO 安装�
 在本地 `config.toml` 中填写：
 
 ```toml
-[cci.ssh_proxy]
+[network.socks5]
 server = ""  # SOCKS5 服务器 IP；留空则直连
 port = 1080
 username = ""
@@ -88,6 +94,23 @@ password = ""
 Homebrew 包名是 **nmap**，不是 ncat。生成的 SSH 命令不含代理账号密码，执行时从配置读取；ncat 的进程参数仍包含凭据。命令引用本机 Python 和项目的绝对路径，移动项目或换电脑后需重新生成。
 
 更多配置见[SSH 与代理配置](docs/CONFIGURATION.md#ssh-与代理)。
+
+## ACP 长任务
+
+主菜单选择 **6. ACP 服务**。创建时使用默认工作空间，选择资源池、规格、镜像和任务命令；默认单 Worker、PyTorch、RESERVED、NORMAL，重试次数为 0。AFS 可选择不挂载，挂载时默认使用当前用户子目录。
+
+```bash
+uv run main.py acp
+uv run main.py acp create
+uv run main.py acp list --workspace share-space-01e --plain
+uv run main.py acp list --workspace share-space-01e --name my-job
+```
+
+创建页先询问是否使用镜像内置启动逻辑。ACP 强制要求非空启动脚本，因此该模式需填写入口程序和参数，例如 `/entrypoint.sh python /data/train.py`；参数含空格时加引号，工具将其安全引用为 `exec ...`。不会自动读取远端镜像的 Entrypoint。默认 NGC 镜像的入口只做初始化，仍需训练程序参数。另一模式直接填写任务命令，例如 `set -eu; python /data/train.py`，不自动注入 SSH 服务或无限 sleep。
+
+提交前显示镜像、规格、数量、命令和存储摘要，完整计划保存到 `.cache/acp/`，默认仅保存。列表仅显示当前用户任务，可用 `--name` 按名称前缀缩小范围，选择后可查看详情、停止、复制或删除。复制会沿用源任务配置并立即提交新任务，不会自动恢复 checkpoint。当前共享工作空间禁止停止后原地重启，因此暂不提供启动操作。提交超时表示结果未知，须按任务名刷新核对，不能盲目重试。
+
+ACP 默认使用系统网络。`network.acp_proxy = true` 时，ACP 任务请求复用 `[network.socks5]` 的 SOCKS5 配置（不依赖 ncat）；资源目录与身份查询仍使用原有网络。无配置时使用系统网络，设置 `false` 可禁用此复用。代理凭据不会写入提交计划。日志流暂未验证可用，当前菜单不提供日志查看；任务成功状态也不等于已核验训练输出。详见 [ACP 实测记录](docs/ACP-LIVE-VALIDATION.md)。
 
 ## 管理已有资源
 
@@ -137,10 +160,18 @@ uv run main.py ccr list --namespace your-namespace
 
 ## 详细文档
 
+- [真实使用验收](docs/LIVE-VALIDATION.md)：生命周期、SSH、AFS 和网络边界。
+- [代码结构](docs/ARCHITECTURE.md)：公共客户端、交互、网络和服务边界。
 - [配置参考](docs/CONFIGURATION.md)：账户、路径、镜像、SSH、代理和 Docker。
-- [服务操作参考](docs/SERVICES.md)：创建、绑定、复制、原生 CLI 兼容及当前限制。
+- [服务操作参考](docs/SERVICES.md)：创建、绑定、复制、任务操作及当前限制。
 - [安装与维护](docs/INSTALLATION.md)：缓存、Shell 环境、卸载及测试。
 - [安装包清单](vendor/sco/README.md)、[历史检查记录](docs/AUDIT.md)。
-- [ACP 调研与接入方案](docs/ACP-INTEGRATION.md)。
+- [ACP 调研与接入方案](docs/ACP-INTEGRATION.md)、[长任务实测与 Entrypoint 结论](docs/ACP-LIVE-VALIDATION.md)。
 
 `config.toml` 及其备份、虚拟环境和运行缓存均由 Git 忽略。真实账户配置只保留在本机。
+
+## 本次结构调整
+
+当前命令仅保留 `install`、`uninstall`、`workspace`、`ccr`、`cci`、`dnat`、`acp`。旧的 `init`、`docker-push`、`cci-create`、原生 `eip` 包装入口已移除。请使用 `ccr upload`、`cci create` 和 `dnat` 服务。
+
+代理配置统一放在 `[network.socks5]`，ACP 是否走代理由 `[network].acp_proxy` 控制。CCI 的 `command` 留空时以前台 sshd 保持运行；填写任何命令都会按自定义命令执行。ACP 镜像入口只接受普通命令和参数，不再接受 JSON 数组。DNAT 创建改为交互填写，不再读取 `--file` 模板。

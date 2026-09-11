@@ -2,8 +2,9 @@ import json
 import unittest
 from unittest.mock import Mock, patch
 
-from scripts import dnat, cli
 
+
+from scripts import network, dnat, cli, rest
 
 class DnatTests(unittest.TestCase):
     def test_random_port_excludes_all_users_protocols_and_port_ranges(self):
@@ -93,7 +94,7 @@ class DnatTests(unittest.TestCase):
             request.assert_not_called()
 
     def test_http_error_is_failure_without_leaking_body(self):
-        error = dnat.ApiError(403, {'message': 'SECRET'})
+        error = rest.RestError(403, {'message': 'SECRET'})
         self.assertNotIn('SECRET', str(error))
         self.assertEqual(error.status, 403)
 
@@ -251,3 +252,10 @@ class DnatTests(unittest.TestCase):
              patch.object(self.api, 'request', return_value={**self.body, 'creator_id': 'other'}):
             with self.assertRaises(cli.ConfigError):
                 dnat.show_rule(self.api, self.body)
+
+    def test_create_readback_must_match_internal_port(self):
+        row = {**self.body, 'state':'CREATED', 'properties':{**self.body['properties'], 'internal_port':'2223'}}
+        api = Mock(); api.list.side_effect = [[], [row]]
+        with patch.object(dnat,'prepare',return_value=self.body), self.assertRaisesRegex(cli.ConfigError,'不一致'):
+            dnat.create_rule(api,self.body)
+        self.assertEqual(api.request.call_count,1)

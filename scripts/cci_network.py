@@ -2,8 +2,7 @@
 import copy
 import json
 import time
-
-from scripts import cli, cci, dnat
+from scripts import ui, cloud, cli, dnat
 
 
 def is_selectable(row, user_id):
@@ -34,13 +33,13 @@ def endpoint_label(row):
 
 
 def plan_dnat(config, document, ports, ssh_port=None):
-    mode = cci.choose('附加公网 DNAT', ['不附加', '创建新 DNAT', '选择已有 DNAT'], default='创建新 DNAT' if ssh_port else '不附加')
+    mode = ui.choose('附加公网 DNAT', ['不附加', '创建新 DNAT', '选择已有 DNAT'], default='创建新 DNAT' if ssh_port else '不附加')
     if mode == '不附加':
         return None
     pool = document['resource_pool']
-    eips = [e for e in cci.Client(config).resources('network.eip.v1.eip')
+    eips = [e for e in cloud.Client(config).resources('network.eip.v1.eip')
             if e.get('zone') == pool['available_zone']
-            and cci.properties(e).get('vpc_id') == pool['vpc_id']]
+            and cloud.properties(e).get('vpc_id') == pool['vpc_id']]
     if not eips:
         raise cli.ConfigError('没有与 CCI 同可用区、同 VPC 的 EIP。')
     if mode == '选择已有 DNAT':
@@ -55,39 +54,27 @@ def plan_dnat(config, document, ports, ssh_port=None):
                                        int(item['rule']['properties']['external_port']), item['rule']['name']))
         if not eligible:
             raise cli.ConfigError('所有匹配公网 IP 下都没有当前用户可用的 DNAT 规则，可选择“创建新 DNAT”。')
-        selection = cci.choose('我的可用 DNAT（全部匹配公网 IP）', eligible,
+        selection = ui.choose('我的可用 DNAT（全部匹配公网 IP）', eligible,
                                lambda item: endpoint_label(item['rule']))
         eip, selected = selection['eip'], selection['rule']
         if is_bound(selected):
             print('当前绑定：' + endpoint_label(selected))
             print('迁移将先解绑，原目标会失去此公网入口，再绑定到新 CCI。')
-            if cci.choose('确认将此规则迁移到新 CCI', ['取消', '迁移'], default='取消') != '迁移':
-                raise cci.Cancelled
+            if ui.choose('确认将此规则迁移到新 CCI', ['取消', '迁移'], default='取消') != '迁移':
+                raise ui.Cancelled
         body = copy.deepcopy(selected)
         public_port = body['properties']['external_port']
         default_port = body['properties'].get('internal_port', '22')
         if default_port in ('', '0'):
             default_port = '22'
-        container_port = ssh_port or cci.ask('容器端口（SSH 通常为 22）', default_port)
+        container_port = ssh_port or ui.ask('容器端口（SSH 通常为 22）', default_port)
         body['properties']['internal_port'] = container_port
     else:
-        eip = cci.choose('EIP（同可用区、同 VPC）', eips, cci.resource_label)
+        eip = ui.choose('EIP（同可用区、同 VPC）', eips, cloud.resource_label)
         api = dnat.Api(config, eip)
-        identity = api.request('GET', identity=True)
-        if not isinstance(identity, dict) or not identity.get('id'):
-            raise cli.ConfigError('无法确认当前用户，未创建 DNAT。')
-        rows = api.list()
-        suggested_port = dnat.random_free_port(rows)
-        print(f'已检查此 EIP 的现有规则，随机选择未占用端口：{suggested_port}')
-        public_port = cci.ask('公网端口', suggested_port)
-        container_port = ssh_port or cci.ask('容器端口（SSH 通常为 22）', '22')
-        body = {'name': document['display_name'][:54] + '-dnat',
-                'creator_id': identity.get('id'), 'owner_id': identity.get('id'),
-                'tenant_id': identity.get('tenant_id'),
-                'properties': {'external_port': public_port, 'internal_port': container_port, 'protocol': 'tcp'}}
-        if not any(row.get('properties', {}).get('external_ip') for row in rows):
-            body['properties']['external_ip'] = cci.ask('EIP 公网 IP')
-        body = dnat.prepare(api, body, rows)
+        body = dnat.new_rule(api, document['display_name'][:54] + '-dnat', internal_port=ssh_port, protocol='tcp')
+        public_port = body['properties']['external_port']
+        container_port = body['properties']['internal_port']
     if '-' in public_port or '-' in container_port:
         raise cli.ConfigError('附加 DNAT 当前只支持单端口。')
     dnat.port_range(public_port)

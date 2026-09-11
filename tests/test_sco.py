@@ -170,13 +170,15 @@ class ScoTests(unittest.TestCase):
         self.assertEqual(run.call_count, 1)
         prompt.assert_not_called()
 
-    def test_menu_dispatch_and_invalid_input(self):
+    @patch.object(sco, 'menu_title', return_value='SLAI-tool')
+    def test_menu_dispatch_and_invalid_input(self, title):
         with patch('builtins.input', side_effect=['bad', '1', '2', '3', '4', '0']):
             with patch.object(sco, 'execute') as execute, contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(sco.menu(), 0)
         self.assertEqual([call.args[0] for call in execute.call_args_list], ['install', 'uninstall', 'ccr', 'cci'])
 
-    def test_menu_recovers_after_operation_error_and_reloads_config(self):
+    @patch.object(sco, 'menu_title', return_value='SLAI-tool')
+    def test_menu_recovers_after_operation_error_and_reloads_config(self, title):
         with patch('builtins.input', side_effect=['1', '1', '0']):
             with patch.object(sco, 'load_config', return_value=self.config) as load:
                 with patch.object(sco, 'install_and_configure', side_effect=[sco.ConfigError('failed'), None]):
@@ -184,7 +186,8 @@ class ScoTests(unittest.TestCase):
                         self.assertEqual(sco.menu(), 0)
         self.assertEqual(load.call_count, 2)
 
-    def test_menu_eof_exits_without_action(self):
+    @patch.object(sco, 'menu_title', return_value='SLAI-tool')
+    def test_menu_eof_exits_without_action(self, title):
         with patch.object(sco.sys, 'argv', ['main.py']), patch('builtins.input', side_effect=EOFError):
             with patch.object(sco, 'execute') as execute, contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(sco.main(), 130)

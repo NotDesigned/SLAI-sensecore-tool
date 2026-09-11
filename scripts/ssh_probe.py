@@ -20,9 +20,9 @@ def ssh_banner(stream):
     return False
 
 
-def check(defaults, host, port, timeout=8):
-    from scripts import cci_ssh
-    args = cci_ssh.ncat_args(defaults, host, port)
+def check(config, host, port, timeout=8):
+    from scripts import network
+    args = network.ncat_args(config, host, port)
     if args is None:
         deadline = time.monotonic() + timeout
         try:
@@ -45,7 +45,7 @@ def check(defaults, host, port, timeout=8):
                 return False, 'no_ssh_banner'
         except (OSError, TimeoutError):
             return False, 'unreachable'
-    executable = cci_ssh.find_ncat()
+    executable = network.find_ncat()
     if not executable:
         return False, 'ncat_missing'
     result = queue.Queue(maxsize=1)
@@ -81,15 +81,15 @@ def check(defaults, host, port, timeout=8):
                 pass
 
 
-def report(defaults, host, port):
-    from scripts import cci_ssh
-    route = '经配置的 SOCKS5 代理' if cci_ssh.ncat_args(defaults, host, port) else '直连'
+def report(config, host, port):
+    from scripts import network
+    route = '经配置的 SOCKS5 代理' if network.ncat_args(config, host, port) else '直连'
     print(f'正在检查 SSH 入口（{route}，最多约 8 秒）……', flush=True)
-    success, reason = check(defaults, host, port)
+    success, reason = check(config, host, port)
     if success:
         print('SSH 入口可达：已收到 SSH 协议响应；尚未验证公钥登录。')
     elif reason == 'ncat_missing':
-        print('未能检查：本机缺少 ncat。' + cci_ssh.ncat_install_hint())
+        print('未能检查：本机缺少 ncat。' + network.ncat_install_hint())
     else:
         print('SSH 入口暂不可达或未收到 SSH 响应。可能未处于 SLAI 内网，请参照 README 的“需要 SOCKS5 代理时”配置 config.toml。')
         print('若已配置代理，请检查代理可用性；也请确认 CCI 已运行、sshd 已启动及 DNAT 绑定正确。')

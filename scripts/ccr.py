@@ -3,41 +3,18 @@ import argparse
 import re
 import urllib.parse
 
-from scripts import cli
+from scripts import cli, rest
 from scripts.rest import get_json
-from scripts.cci import Cancelled, choose
+from scripts.ui import Cancelled, choose
 from scripts.docker_registry import push_image
 
 
-
 def pages(config, base, field, *, camel=False):
-    result, seen, token = [], set(), '1'
-    for _ in range(1000):
+    def fetch(token):
         query = {'pageSize': 100, 'pageToken': token} if camel else {'page_size': 100, 'page_token': token}
         separator = '&' if '?' in base else '?'
-        data = get_json(config, base + separator + urllib.parse.urlencode(query))
-        rows = data.get(field) if isinstance(data, dict) else None
-        if not isinstance(rows, list):
-            raise cli.ConfigError('CCR REST 列表结构不匹配。')
-        for row in rows:
-            if not isinstance(row, dict) or not isinstance(row.get('name'), str):
-                raise cli.ConfigError('CCR REST 记录格式无效。')
-            key = row.get('id') or row['name']
-            if key in seen:
-                raise cli.ConfigError('CCR REST 分页重复，未能完成查询。')
-            seen.add(key)
-            result.append(row)
-        total = data.get('totalSize', data.get('total_size'))
-        if isinstance(total, int) and len(result) >= total:
-            return result
-        following = data.get('nextPageToken', data.get('next_page_token'))
-        if following not in (None, '', '0'):
-            token = str(following)
-        elif isinstance(total, int) and len(result) < total:
-            raise cli.ConfigError('CCR REST 未返回完整列表或下一页标识，无法确认结果完整性。')
-        else:
-            return result
-    raise cli.ConfigError('CCR REST 列表超过分页上限。')
+        return get_json(config, base + separator + urllib.parse.urlencode(query))
+    return rest.pages(fetch, field)
 
 
 def namespaces(config):
@@ -88,21 +65,8 @@ def list_images(config, namespace_name=None):
 
 
 def menu(config=None):
-    while True:
-        print('\nCCR 服务\n1. 上传镜像\n2. 列出可访问镜像\n0. 返回')
-        choice = input('请选择 [0-2]：').strip()
-        if choice == '0':
-            return
-        if choice not in ('1', '2'):
-            print('请输入 0、1 或 2。')
-            continue
-        try:
-            current = cli.load_config(for_init=True)
-            (push_image if choice == '1' else list_images)(current)
-        except Cancelled:
-            print('已取消查询。')
-        except (cli.ConfigError, OSError) as error:
-            print(str(error) if isinstance(error, cli.ConfigError) else '无法读取配置或执行命令。')
+    from scripts.ui import menu as service_menu
+    return service_menu('CCR 服务', main, (('upload', '上传镜像'), ('list', '列出可访问镜像')))
 
 
 def main(args):
