@@ -127,7 +127,7 @@ class WindowsProxyIntegration(unittest.TestCase):
             with patch.object(cci_ssh, '__file__', str(project / 'scripts' / 'cci_ssh.py')), patch.object(sys, 'executable', str(python)):
                 command = cci_ssh.connection_command(config, '127.0.0.1', port)
             extra = format_command(['ssh', '-F', 'NUL', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
-                                    '-o', 'UserKnownHostsFile=' + str(known), '-o', 'IdentitiesOnly=yes', '-i', str(key)])
+                                    '-o', 'UserKnownHostsFile="' + known.as_posix() + '"', '-o', 'IdentitiesOnly=yes', '-i', str(key)])
             command = extra + command[len('ssh'):] + " 'integration-command'"
             result = subprocess.run(['pwsh', '-NoProfile', '-NonInteractive', '-Command', command], capture_output=True, timeout=45)
             for thread in threads:

@@ -31,6 +31,13 @@ class WindowsTests(unittest.TestCase):
         self.assertNotIn('secret-user', command)
         self.assertNotIn('secret-pass', command)
 
+    def test_proxy_rejects_unsafe_windows_paths(self):
+        config = {'network': {'socks5': {'server': '192.0.2.2'}}}
+        for executable in ('C:/percent%h/python.exe', 'C:/quote"/python.exe', 'C:/line\n/python.exe'):
+            with self.subTest(executable=executable), patch.object(sys, 'platform', 'win32'), patch.object(sys, 'executable', executable):
+                with self.assertRaises(cli.ConfigError):
+                    cci_ssh.connection_command(config, '192.0.2.1', 22)
+
     def test_proxy_waits_for_ncat_on_windows(self):
         with patch.object(sys, 'platform', 'win32'), patch.object(sys, 'argv', ['proxy', '192.0.2.1', '22']), \
              patch.object(network, 'find_ncat', return_value='ncat.exe'), \

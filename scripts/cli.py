@@ -87,7 +87,7 @@ def save_config_updates(section, updates, original):
         document[section][key] = value
     serialized = tomlkit.dumps(document)
     updated = tomllib.loads(serialized)
-    # Replace atomically only after all inputs are collected, using owner-only permissions.
+    # Replace atomically after collecting inputs; mode 0600 restricts POSIX permissions.
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=CONFIG.parent,
