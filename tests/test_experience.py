@@ -210,3 +210,22 @@ class DefaultChoiceUiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.screen.query_one(OptionList).highlighted,0)
             await pilot.press('enter')
             self.assertEqual(selected,['连接'])
+
+    async def test_acp_state_dropdown_shows_all_options_and_selects_last(self):
+        from scripts.acp import JobSource
+        from scripts.listing import Page
+        from textual.widgets import Select
+        client=Mock()
+        client.jobs_page.return_value=Page([],False,0)
+        app=SlaiApp()
+        async with app.run_test(size=(80,24)) as pilot:
+            browser=Browser('ACP',JobSource(client,'ws'),lambda _:None)
+            await app.push_screen(browser)
+            await self.settle(pilot,lambda:not browser.fetching and browser.query_one('#state').region.width>0)
+            await pilot.click('#state')
+            await self.settle(pilot,lambda:browser.query_one(Select).expanded and browser.query_one('SelectOverlay').region.height>0)
+            overlay=browser.query_one('SelectOverlay')
+            self.assertEqual(overlay.option_count,6)
+            self.assertGreaterEqual(overlay.content_region.height,overlay.option_count)
+            await pilot.press('end','enter')
+            await self.settle(pilot,lambda:not browser.fetching and client.jobs_page.call_args.args[-1]=='FAILED')

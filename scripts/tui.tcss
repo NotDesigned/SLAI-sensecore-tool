@@ -3,7 +3,7 @@ Screen { background: $surface; }
 .hint { height: auto; min-height: 2; padding: 0 1; color: $text-muted; }
 .dialog { width: 88; max-width: 95%; height: auto; max-height: 90%; border: round $primary; padding: 1 2; background: $surface; }
 Picker, Edit { align: center middle; }
-OptionList { height: 1fr; border: none; }
+#home, Picker OptionList { height: 1fr; border: none; }
 .dialog OptionList { height: auto; max-height: 18; }
 Input { height: 3; }
 DataTable, RichLog, TextArea { height: 1fr; }
