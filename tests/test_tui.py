@@ -9,7 +9,7 @@ from textual.widgets import DataTable, Input, TextArea, Static
 from scripts import acp, cli, ui
 from scripts.forms import CreateDraft
 from scripts.listing import LocalSource
-from scripts.tui import SlaiApp, Browser, Form, Edit, Picker, Operation, CommandEdit
+from scripts.tui import SlaiApp, Browser, Form, Edit, Picker, Operation, CommandEdit, Details
 
 
 def fake_client():
