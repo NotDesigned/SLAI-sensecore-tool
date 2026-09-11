@@ -85,7 +85,7 @@ class RefreshUiTests(unittest.IsolatedAsyncioTestCase):
         from textual.widgets import DataTable,Static
         source=LocalSource(Mock(side_effect=[['existing-image'],cli.ConfigError('offline')]))
         app=SlaiApp()
-        with patch.object(cli,'menu_title',return_value='SLAI-tool'):
+        with patch.object(cli,'menu_title',return_value='SLAI-tool'), patch('scripts.proxy_settings.status',return_value='SOCKS5：测试状态'):
             async with app.run_test() as pilot:
                 browser=Browser('镜像',source,lambda row:None)
                 await app.push_screen(browser)

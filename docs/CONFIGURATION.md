@@ -5,7 +5,7 @@
 | 配置表 | 用途 |
 | --- | --- |
 | `[account]` | AccessKey ID、AccessKey Secret；直接用于 REST HMAC 鉴权 |
-| `[workspace]` | 默认工作空间及完整资源范围，由主菜单 2 保存 |
+| `[workspace]` | 默认工作空间及完整资源范围，由顶部“工作空间”按钮 保存 |
 | `[cci]` | 默认镜像、是否启用 SSH、公钥路径、附加命令 |
 | `[cci.last]` | 上次保存的创建选项，由程序维护 |
 | `[acp]` | 默认镜像和任务命令 |
@@ -43,6 +43,10 @@ port = 1080
 username = ""
 password = ""
 ```
+
+顶部“配置 SOCKS5”按钮可编辑或关闭代理，不必手动改文件；密码隐藏输入，同一代理可选择保留已有密码。关闭代理时同步关闭 ACP 代理开关。
+
+主界面在启动和配置完成后检测，也支持手动重测，显示检测时间。检测只验证 SOCKS5 握手及用户名密码认证，不验证任意目标可达；具体 CCI 由 SSH 入口检查判断。协议依据 [RFC 1928](https://www.rfc-editor.org/rfc/rfc1928.html) 和 [RFC 1929](https://www.rfc-editor.org/rfc/rfc1929.html)。
 
 server 留空时 SSH 直连；填写时使用 SOCKS5，用户名和密码须同时填写或同时留空。SSH 通过 Ncat 转发；输出命令没有代理凭据，辅助程序运行时读取本机配置。Ncat 进程参数仍包含代理凭据。
 

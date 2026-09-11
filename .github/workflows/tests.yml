@@ -45,6 +45,9 @@ jobs:
       - name: CCR cache on Windows
         if: runner.os == 'Windows'
         run: uv run python -m unittest discover -s tests -p test_ccr_cache.py -v
+      - name: Proxy setup and handshake checks on Windows
+        if: runner.os == 'Windows'
+        run: uv run python -m unittest discover -s tests -p test_proxy_settings.py -v
       - run: uv run python -m compileall -q scripts
       - run: uv run main.py cci --help
       - run: uv run main.py dnat --help

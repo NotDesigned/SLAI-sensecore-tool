@@ -149,6 +149,8 @@ class DraftTests(unittest.TestCase):
 class TuiTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.identity = patch.object(cli, 'menu_title', return_value='SLAI-tool · 用户：测试 · 工作空间：demo')
+        proxy = patch('scripts.proxy_settings.status',return_value='SOCKS5：测试状态')
+        proxy.start();self.addCleanup(proxy.stop)
         self.identity.start()
         self.addCleanup(self.identity.stop)
 
@@ -294,7 +296,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             return ui.browse('我的资源', lambda: ['example'], str, lambda row: None)
         with patch.object(cli, 'run_service', side_effect=service):
             async with app.run_test() as pilot:
-                await pilot.press('6')
+                await pilot.press('4')
                 await self.settle(pilot, lambda: isinstance(app.screen, Browser) and app.screen.page is not None)
                 await pilot.press('0')
                 await self.settle(pilot, lambda: len(app.screen_stack) == 1)
@@ -358,7 +360,7 @@ class ListActionTests(unittest.IsolatedAsyncioTestCase):
             created()
             ui.show_text('创建表单', 'form content')
         app=SlaiApp()
-        with patch.object(cli,'menu_title',return_value='SLAI-tool'):
+        with patch.object(cli,'menu_title',return_value='SLAI-tool'), patch('scripts.proxy_settings.status',return_value='SOCKS5：测试状态'):
             async with app.run_test(size=(80,24)) as pilot:
                 browser=Browser('我的 ACP',source,lambda row:None,actions=(('create','创建 ACP',create),('create-last','按照上次配置',create)))
                 await app.push_screen(browser)

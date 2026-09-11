@@ -27,7 +27,7 @@ image = ""
 command = ""
 
 [workspace]
-# 主菜单 2 选择后自动记录完整资源范围；留空时各服务交互选择。
+# 顶部“工作空间”按钮 选择后自动记录完整资源范围；留空时各服务交互选择。
 name = ""
 region = ""
 subscription_name = ""

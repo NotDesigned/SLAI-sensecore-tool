@@ -19,6 +19,7 @@
 | listing.py | 本地快照与统一页结果 |
 | workspace.py | 默认工作空间选择与持久化 |
 | cci_ssh.py / ssh_probe.py | SSH 启动配置、就绪与入口检查、连接命令 |
+| proxy_settings.py | 顶部 SOCKS5 配置、隐藏密码输入、限时握手与认证检测 |
 | network.py / ncat_proxy.py / commands.py | SOCKS5、Ncat 转发与跨平台命令格式化 |
 | plans.py / clipboard.py | 私有计划文件、文本导出与系统剪贴板 |
 

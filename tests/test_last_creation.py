@@ -62,7 +62,7 @@ class PreviousUiTests(unittest.IsolatedAsyncioTestCase):
     async def test_previous_form_has_direct_submit_and_remains_editable(self):
         c=client();saved=previous(c);draft=CreateDraft('cci',c,WS,previous=saved)
         app=SlaiApp();results=[]
-        with patch.object(cli,'menu_title',return_value='SLAI-tool'):
+        with patch.object(cli,'menu_title',return_value='SLAI-tool'), patch('scripts.proxy_settings.status',return_value='SOCKS5：测试状态'):
             async with app.run_test(size=(80,24)) as pilot:
                 form=Form(draft);await app.push_screen(form,results.append)
                 for _ in range(40):
@@ -84,7 +84,7 @@ class SubmitDefaultTests(unittest.IsolatedAsyncioTestCase):
             for button in ('review','save'):
                 c=client();draft=CreateDraft(kind,c,WS);draft.values['command']='sleep 1'
                 app=SlaiApp();results=[]
-                with patch.object(cli,'menu_title',return_value='SLAI-tool'):
+                with patch.object(cli,'menu_title',return_value='SLAI-tool'), patch('scripts.proxy_settings.status',return_value='SOCKS5：测试状态'):
                     async with app.run_test(size=(80,24)) as pilot:
                         form=Form(draft);await app.push_screen(form,results.append)
                         for _ in range(40):

@@ -570,6 +570,7 @@ class SlaiApp(App):
         self.initial = initial
         self.pending = set()
         self.identity_cache = {}
+        self.proxy_generation = 0
 
     def compose(self) -> ComposeResult:
         yield Static('SLAI-tool', id='identity', classes='heading')
@@ -577,13 +578,20 @@ class SlaiApp(App):
         yield Static(literal(onboarding.state()[1]), classes='hint', id='getting-started')
         with Horizontal(classes='buttons'):
             yield Button('开始设置', id='home-setup', variant='primary')
+            yield Button('配置账户', id='home-account')
+            yield Button('工作空间', id='home-workspace')
+            yield Button('配置 SOCKS5', id='home-proxy')
             yield Button('使用指南', id='home-help')
-        yield OptionList(*[literal(f'{i}. {title}') for i, (_, title) in enumerate(cli.MENU_ITEMS, 1)], id='home')
+        with Horizontal(classes='proxy-bar'):
+            yield Static('SOCKS5：等待检测', id='proxy-status')
+            yield Button('检测代理', id='home-proxy-check')
+        yield OptionList(*[literal(f'{i}. {title}\n') for i, (_, title) in enumerate(cli.MENU_ITEMS, 1)], id='home')
         yield Footer()
 
     def on_mount(self):
         self.query_one(OptionList).focus()
         self.refresh_identity()
+        self.refresh_proxy()
         from scripts import onboarding
         if onboarding.state()[0] in ('account', 'workspace'):
             self.query_one('#home-setup', Button).focus()
@@ -601,6 +609,19 @@ class SlaiApp(App):
         button.label = {'account':'开始设置','workspace':'选择工作空间','error':'查看配置问题'}.get(kind,'开始设置')
         self.task(self.screen, lambda: cli.menu_title(self.identity_cache),
                   lambda value, error: self.query_one('#identity', Static).update(literal(value or 'SLAI-tool')))
+
+    def refresh_proxy(self):
+        from scripts import proxy_settings
+        self.proxy_generation += 1
+        generation = self.proxy_generation
+        self.query_one('#proxy-status', Static).update('SOCKS5：正在检测（最多约 8 秒）…')
+        self.query_one('#home-proxy-check', Button).disabled = True
+        def finished(value, error):
+            if generation != self.proxy_generation:
+                return
+            self.query_one('#proxy-status', Static).update(literal(value or 'SOCKS5：检测未完成'))
+            self.query_one('#home-proxy-check', Button).disabled = False
+        self.task(self.screen_stack[0], proxy_settings.status, finished)
 
     def open_service(self, name):
         from scripts import onboarding
@@ -633,8 +654,20 @@ class SlaiApp(App):
         from scripts import onboarding
         if event.button.id == 'home-setup':
             self.open_operation('首次设置', onboarding.start)
+        elif event.button.id == 'home-account':
+            self.open_operation('配置账户', lambda: cli.execute('configure'))
+        elif event.button.id == 'home-workspace':
+            self.open_operation('选择工作空间', lambda: cli.execute('workspace'))
         elif event.button.id == 'home-help':
             self.push_screen(Details('使用指南', onboarding.GUIDE))
+        elif event.button.id == 'home-proxy-check':
+            self.refresh_proxy()
+        elif event.button.id == 'home-proxy':
+            from scripts import proxy_settings
+            def finished(_):
+                self.refresh_identity()
+                self.refresh_proxy()
+            self.push_screen(Operation('配置 SOCKS5 代理', proxy_settings.configure, auto_close=True), finished)
 
     def copy_to_clipboard(self, text):
         from scripts.clipboard import copy_text

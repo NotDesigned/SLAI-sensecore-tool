@@ -118,8 +118,7 @@ def configure_workspace(config):
 
 
 SERVICES = {'ccr': 'ccr', 'cci': 'cci_service', 'dnat': 'dnat', 'acp': 'acp'}
-MENU_ITEMS = (('configure', '配置账户'), ('workspace', '选择默认工作空间'),
-              ('ccr', 'CCR · 镜像管理'), ('cci', 'CCI · 交互调试'), ('dnat', 'DNAT · 连接入口'),
+MENU_ITEMS = (('ccr', 'CCR · 镜像管理'), ('cci', 'CCI · 交互调试'), ('dnat', 'DNAT · 连接入口'),
               ('acp', 'ACP · 长任务'))
 
 
@@ -198,14 +197,31 @@ def menu_title(identity_cache):
 
 def menu():
     identity_cache = {}
+    proxy_status = None
     while True:
         print('\n' + menu_title(identity_cache))
         from scripts import onboarding
         print(onboarding.state()[1])
+        print('a. 配置账户  w. 选择工作空间  p. 配置 SOCKS5  h. 使用指南')
+        from scripts import proxy_settings
+        if proxy_status is None:
+            print('正在检测 SOCKS5 代理（最多约 8 秒）…')
+            proxy_status = proxy_settings.status()
+        print(proxy_status)
         for index, (_, title) in enumerate(MENU_ITEMS, 1):
             print(f'{index}. {title}')
-        print('h. 使用指南\n0. 退出')
+        print('r. 检测代理\n0. 退出')
         choice = input(f'请选择 [0-{len(MENU_ITEMS)}]：').strip().lower()
+        if choice in ('a', 'w'):
+            execute('configure' if choice == 'a' else 'workspace')
+            continue
+        if choice == 'p':
+            guarded(proxy_settings.configure)
+            proxy_status = None
+            continue
+        if choice == 'r':
+            proxy_status = None
+            continue
         if choice == 'h':
             onboarding.guide()
             continue

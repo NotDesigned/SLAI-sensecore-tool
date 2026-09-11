@@ -13,6 +13,11 @@ DataTable, RichLog, TextArea { height: 1fr; }
 .filters Input { width: 1fr; }
 .filters Select { width: 20; }
 #counter, #status, #error { height: auto; min-height: 2; padding: 0 1; }
-#home { margin: 1 2; }
+#home { margin: 1 2; text-style: bold; }
+#home > .option-list--option { padding: 0 2; }
 
 .review-context { height: 12; max-height: 45%; }
+
+.proxy-bar { height: 3; align-vertical: middle; }
+#proxy-status { width: 1fr; height: auto; padding: 0 1; }
+.proxy-bar Button { margin-right: 1; min-width: 12; }
