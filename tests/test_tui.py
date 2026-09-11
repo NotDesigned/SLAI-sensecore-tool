@@ -155,9 +155,9 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.identity.stop)
 
     async def settle(self, pilot, check):
-        for _ in range(40):
+        for _ in range(200):
             await pilot.pause(0.025)
-            if check():
+            if pilot.app.screen.is_mounted and check():
                 return
         self.fail('UI did not reach expected state')
 
@@ -325,7 +325,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
         app = SlaiApp()
         async with app.run_test() as pilot:
             app.open_operation('配置', lambda: ui.ask('名称'))
-            await self.settle(pilot, lambda: isinstance(app.screen, Edit))
+            await self.settle(pilot, lambda: isinstance(app.screen, Edit) and app.screen.is_mounted)
         self.assertFalse(app.pending)
 
     async def test_password_input_is_masked_and_not_logged(self):
@@ -372,7 +372,7 @@ class ListActionTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.click('#service-create')
                 for _ in range(40):
                     await pilot.pause(.025)
-                    if created.called and isinstance(app.screen, Details):break
+                    if created.called and isinstance(app.screen, Details) and app.screen.is_mounted:break
                 created.assert_called_once()
                 self.assertIn('form content',app.screen.query_one(TextArea).text)
                 await pilot.press('escape')

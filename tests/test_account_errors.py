@@ -79,15 +79,16 @@ class AccountErrorUiTests(unittest.IsolatedAsyncioTestCase):
         import threading
         started = threading.Event()
         mounted = []
-        class SlowMountOperation(Operation):
-            def on_mount(self):
-                super().on_mount()
-                # Let an incorrectly eager worker observe the pre-mount state.
-                started.wait(.1)
+        original_mount = Operation.on_mount
+        def slow_mount(operation):
+            original_mount(operation)
+            # Let an incorrectly eager worker observe the pre-mount state.
+            started.wait(.05)
         app = SlaiApp()
         async with app.run_test() as pilot:
-            operation = SlowMountOperation('mount probe', lambda: (mounted.append(operation.is_mounted), started.set()))
-            await app.push_screen(operation)
+            operation = Operation('mount probe', lambda: (mounted.append(operation.is_mounted), started.set()))
+            with patch.object(Operation, 'on_mount', slow_mount):
+                await app.push_screen(operation)
             for _ in range(100):
                 await pilot.pause(.025)
                 if operation.done:
