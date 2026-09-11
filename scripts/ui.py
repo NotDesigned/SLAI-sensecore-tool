@@ -4,6 +4,7 @@ from contextvars import ContextVar
 from scripts import cli
 
 _backend = ContextVar('slai_ui', default=None)
+_changes = ContextVar('slai_changes', default=None)
 
 
 def backend():
@@ -12,6 +13,28 @@ def backend():
 
 def active():
     return backend() is not None
+
+
+def mark_changed():
+    """Mark a mutation before sending it; an uncertain write also needs refresh."""
+    if _changes.get() is not None:
+        _changes.get()[0] = True
+    if active() and hasattr(backend(), 'mark_changed'):
+        backend().mark_changed()
+
+
+def request_timeout(timeout, writing=False):
+    if writing and _changes.get() is not None:
+        _changes.get()[0] = True
+    if active() and hasattr(backend(), 'request_timeout'):
+        return backend().request_timeout(timeout, writing)
+    return timeout
+
+
+def catalog_read(config, url, proxy, fetch):
+    if active() and hasattr(backend(), 'catalog_read'):
+        return backend().catalog_read(config, url, proxy, fetch)
+    return fetch()
 
 
 def output(*values, sep=' ', end='\n', **kwargs):
@@ -42,7 +65,17 @@ class Cancelled(Exception):
     pass
 
 
+def choice_default(items, default=None):
+    # Back navigation is always available via 0; it isn't the next action.
+    # Explicit cancellation remains the default for confirmations.
+    if default == '取消' and '取消' in items:
+        return default
+    choices = [item for item in items if not (isinstance(item, str) and item in ('返回', '返回列表', '取消'))]
+    return default if default in choices else (choices[0] if choices else None)
+
+
 def choose(label, items, describe=str, default=None):
+    default = choice_default(items, default)
     if active():
         return backend().choose(label, items, describe, default)
     if not items:
@@ -201,13 +234,23 @@ def browse(title, fetch, describe, operate, *, plain=False, actions=()):
                 break
             selected_action = next((callback for key, _, callback in actions if value == key), None)
             if selected_action or (value.isascii() and value.isdecimal() and 1 <= int(value) <= len(rows)):
+                changed = [False]
+                parent = _changes.get()
+                token = _changes.set(changed)
                 try:
                     selected_action() if selected_action else operate(rows[int(value) - 1])
                 except Cancelled:
                     print('已取消操作。')
                 except (cli.ConfigError, OSError) as error:
                     print(str(error) if isinstance(error, cli.ConfigError) else '操作未完成，请刷新确认状态。')
-                break
+                finally:
+                    _changes.reset(token)
+                    if parent is not None and changed[0]:
+                        parent[0] = True
+                if changed[0]:
+                    break
+                print('已返回列表；输入 r 可刷新。')
+                continue
             print('请输入列表编号，或输入 0 返回。')
 
 print = output

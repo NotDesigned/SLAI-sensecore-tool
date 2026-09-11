@@ -199,17 +199,11 @@ def inspect_local(source):
 def plan_sync(config, source):
     """Resolve an explicit target without tagging, uploading, or logging secrets."""
     image_id = inspect_local(source)
-    repository, tag = source.rsplit(':', 1)
-    first, separator, rest = repository.partition('/')
-    if separator and ('.' in first or ':' in first or first == 'localhost'):
-        repository = rest
+    repository, tag = upload_defaults(source)
     settings = dict(config.get('docker', {}))
     registry = string_value(settings, 'registry') or 'registry.cn-sh-01.sensecore.cn'
     from scripts.ccr import select_upload_namespace
     namespace = select_upload_namespace(config, registry, string_value(settings, 'namespace'))
-    # An already qualified CCR tag includes its namespace in the repository.
-    if source.startswith(registry + '/' + namespace + '/'):
-        repository = repository.removeprefix(namespace + '/')
     settings.update(registry=registry, namespace=namespace, source_image=source,
                     image_name=repository, tag=tag)
     validate(settings)
@@ -224,25 +218,33 @@ def sync_image(config, plan):
     target = f"{plan['registry']}/{plan['namespace']}/{plan['image_name']}:{plan['tag']}"
     if target != plan['target'] or inspect_local(plan['source_image']) != plan['source_id']:
         raise ConfigError('本地镜像或同步目标已变化，请重新选择镜像后提交。')
-    docker, env = shutil.which('docker'), os.environ.copy()
     settings = dict(plan, username=string_value(config.get('docker', {}), 'username'))
-    saved_login = has_credentials(plan['registry'], env)
+    upload(settings, plan['source_id'], config)
+    return target
+
+
+def upload(settings, source, config):
+    """Shared authentication, exact-source tagging, upload and cache invalidation."""
+    from scripts import ui
+    docker, env = shutil.which('docker'), os.environ.copy()
+    target = f"{settings['registry']}/{settings['namespace']}/{settings['image_name']}:{settings['tag']}"
+    saved_login = has_credentials(settings['registry'], env)
     if not saved_login:
         login(docker, settings, env)
-    print(f"正在同步本地镜像：{plan['source_image']} → {target}")
-    result = subprocess.run([docker, 'tag', plan['source_id'], target], capture_output=True, env=env)
+    ui.mark_changed()
+    print(f'上传镜像：{source} → {target}', flush=True)
+    result = subprocess.run([docker, 'tag', source, target], capture_output=True, env=env)
     if result.returncode:
-        raise ConfigError('本地镜像标记失败，未创建任务。')
+        raise ConfigError('Docker tag 失败，上传流程已停止。')
     code, auth_failed = run_push(docker, target, env)
     if code and auth_failed and saved_login:
         login(docker, settings, env)
         code, _ = run_push(docker, target, env)
     if code:
-        raise ConfigError(f'镜像同步失败（退出码 {code}），未创建任务。')
+        raise ConfigError(f'镜像上传失败（退出码 {code}），未创建任务。')
     from scripts.ccr_cache import invalidate
-    invalidate(config, plan['registry'], plan['namespace'])
-    print('镜像同步完成：' + target)
-    return target
+    invalidate(config, settings['registry'], settings['namespace'])
+    print('镜像上传完成：' + target)
 
 
 def push_image(config):
@@ -256,21 +258,4 @@ def push_image(config):
     result = subprocess.run([docker, 'image', 'inspect', source], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if result.returncode:
         raise ConfigError('本地镜像检查失败，请检查镜像名称和 Docker 服务。')
-    saved_login = has_credentials(settings['registry'], env)
-    if not saved_login:
-        print('Docker 未保存此 Registry 的可用凭据，请登录。')
-        login(docker, settings, env)
-    print(f'上传镜像：{source} → {target}', flush=True)
-    result = subprocess.run([docker, 'tag', source, target], env=env, capture_output=True)
-    if result.returncode:
-        raise ConfigError('Docker tag 失败，上传流程已停止。')
-    code, auth_failed = run_push(docker, target, env)
-    if code and auth_failed and saved_login:
-        print('已有凭据未通过认证，请重新登录。')
-        login(docker, settings, env)
-        code, _ = run_push(docker, target, env)
-    if code:
-        raise ConfigError(f'Docker push 失败（退出码 {code}）。')
-    from scripts.ccr_cache import invalidate
-    invalidate(config, settings['registry'], settings['namespace'])
-    print(f'镜像上传完成：{target}')
+    upload(settings, source, config)

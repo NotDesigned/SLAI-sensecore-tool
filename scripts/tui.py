@@ -34,6 +34,51 @@ class Bridge:
         self.app, self.sink = app, sink
         self.history = ''
         self.owner = owner
+        self.deadline = None
+
+    def catalog_read(self, config, url, proxy, fetch):
+        import copy
+        import time
+        from scripts.ccr_cache import account_key
+        self.request_timeout(20)
+        key = (account_key(config), url, proxy)
+        with self.app.catalog_lock:
+            cached = self.app.catalog.get(key)
+            if cached and time.monotonic() - cached[0] < 30:
+                return copy.deepcopy(cached[1])
+            generation = self.app.catalog_generation
+        value = fetch()
+        with self.app.catalog_lock:
+            if generation == self.app.catalog_generation:
+                if len(self.app.catalog) >= 64:
+                    self.app.catalog.pop(next(iter(self.app.catalog)))
+                self.app.catalog[key] = (time.monotonic(), copy.deepcopy(value))
+        return value
+
+    def mark_changed(self):
+        def mark():
+            if self.owner is not None and not self.owner.is_mounted:
+                raise ui.Cancelled()
+            self.app.clear_catalog()
+            if isinstance(self.owner, Operation):
+                self.owner.changed = True
+                self.owner.query_one('#back', Button).disabled = not self.owner.done
+        self.app.call_from_thread(mark)
+
+    def request_timeout(self, timeout, writing=False):
+        import time
+        if self.owner is not None and not self.owner.is_mounted:
+            raise ui.Cancelled()
+        if writing:
+            self.mark_changed()
+        if isinstance(self.owner, Operation) and self.owner.changed:
+            return timeout
+        if self.deadline is None:
+            self.deadline = time.monotonic() + max(60, timeout)
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise cli.ConfigError('本次查询等待过久，请返回后重试。')
+        return min(timeout, remaining)
 
     def request(self, screen):
         if self.owner is not None and not self.owner.is_mounted:
@@ -49,7 +94,9 @@ class Bridge:
         try:
             while True:
                 try:
-                    return result.result(timeout=0.1)
+                    value = result.result(timeout=0.1)
+                    self.deadline = None  # User input must not consume a query budget.
+                    return value
                 except FutureTimeout:
                     if get_current_worker().is_cancelled or not self.app.is_running:
                         raise ui.Cancelled
@@ -60,7 +107,7 @@ class Bridge:
     def output(self, value):
         self.history = (self.history + value)[-24000:]
         if self.sink is not None:
-            self.app.call_from_thread(self.sink, value)
+            self.app.call_from_thread(lambda: self.sink(value) if self.owner is None or self.owner.is_mounted else None)
 
     def choose(self, title, items, describe, default):
         if not items:
@@ -120,7 +167,8 @@ class Picker(BackScreen):
     def __init__(self, title, choices, describe=str, default=None, back=None, context=''):
         super().__init__()
         self.title_text, self.choices, self.describe = title, choices, describe
-        self.default, self.back, self.context = default, back, context
+        self.default = ui.choice_default([*choices, *([back] if back is not None else [])], default)
+        self.back, self.context = back, context
         self.indices = list(range(len(choices)))
 
     def compose(self) -> ComposeResult:
@@ -269,12 +317,13 @@ class Operation(BackScreen):
         self.title_text, self.callback, self.done = title, callback, False
         self.auto_close = auto_close
         self.failure_title = '操作未完成'
+        self.changed = False
 
     def compose(self) -> ComposeResult:
         yield Static(literal(self.title_text), classes='heading')
         yield Static('处理中…', id='status')
         yield RichLog(wrap=True, markup=False, max_lines=2000, id='output')
-        yield Button('0 返回', id='back', disabled=True)
+        yield Button('0 返回', id='back')
         yield Footer()
 
     def on_mount(self):
@@ -289,7 +338,7 @@ class Operation(BackScreen):
             error = '操作未完成，请查看输出信息。'
         self.done = True
         if self.auto_close and not error:
-            self.dismiss(None)
+            self.dismiss(self.changed)
             return
         self.query_one('#status', Static).update(self.failure_title if error else '已结束')
         if error:
@@ -298,10 +347,10 @@ class Operation(BackScreen):
         self.query_one('#back', Button).focus()
 
     def action_back(self):
-        if self.done:
-            super().action_back()
+        if self.done or not self.changed:
+            self.dismiss(self.changed)
         else:
-            self.notify('正在处理，请等待结果。')
+            self.notify('请求已提交，正在确认结果，请稍候。')
 
     def on_button_pressed(self, event: Button.Pressed):
         self.action_back()
@@ -317,8 +366,10 @@ class Browser(BackScreen):
         self.title_text, self.source, self.operate = title, source, operate
         self.index, self.page_size, self.generation = 0, 20, 0
         self.page = None
-        self.loading = False
+        self.fetching = False
         self.selection = None
+        self.displayed_index = 0
+        self.pending_refresh = False
         self.select_mode = select_mode
         self.actions = actions
 
@@ -348,9 +399,10 @@ class Browser(BackScreen):
 
     def load(self, refresh=False):
         # Avoid accumulating network reads while one is in flight.
-        if self.loading:
+        if self.fetching:
+            self.pending_refresh |= refresh
             return
-        self.loading = True
+        self.fetching = True
         self.generation += 1
         generation = self.generation
         query = self.query_one('#search', Input).value.strip()
@@ -358,14 +410,18 @@ class Browser(BackScreen):
         self.query_one('#counter', Static).update(getattr(self.source, 'loading_hint', '加载中…') + ' · 可按 0 返回')
         self.query_one(DataTable).disabled = True
         for button in self.query('.buttons Button'):
-            button.disabled = button.id != 'back'
+            button.disabled = button.id != 'back' and not button.id.startswith('service-')
         self.query_one('#search', Input).disabled = True
         if self.source.states:
             self.query_one('#state', Select).disabled = True
         def finished(page, error):
             if not self.is_mounted or generation != self.generation:
                 return
-            self.loading = False
+            self.fetching = False
+            if self.pending_refresh:
+                self.pending_refresh = False
+                self.load(refresh=True)
+                return
             self.query_one('#search', Input).disabled = False
             if self.source.states:
                 self.query_one('#state', Select).disabled = False
@@ -375,12 +431,18 @@ class Browser(BackScreen):
                     button.disabled = False
             table = self.query_one(DataTable)
             if error:
+                self.index = self.displayed_index
                 table.disabled = self.page is None
                 if self.page is not None:
                     self.query_one('#previous', Button).disabled = self.index == 0
                     self.query_one('#next', Button).disabled = not self.page.more
                 self.query_one('#counter', Static).update(literal(error + (' · 保留上次结果 · ' + getattr(self.source,'status_hint','') if self.page else '') + ' · 刷新重试'))
                 return
+            if not page.rows and self.index > 0:
+                self.index = max(0, (page.total - 1) // self.page_size) if page.total is not None else 0
+                self.load()
+                return
+            self.displayed_index = self.index
             table.clear()
             self.page = page
             table.disabled = False
@@ -415,7 +477,7 @@ class Browser(BackScreen):
                 table.move_cursor(row=i)
 
     def on_resize(self):
-        if self.is_mounted and self.page is not None and not self.loading:
+        if self.is_mounted and self.page is not None and not self.fetching:
             self.render_rows()
 
     def action_back(self):
@@ -423,7 +485,7 @@ class Browser(BackScreen):
         super().action_back()
 
     def action_search(self):
-        if not self.loading:
+        if not self.fetching:
             self.query_one('#search', Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted):
@@ -431,21 +493,22 @@ class Browser(BackScreen):
         self.load()
 
     def on_select_changed(self, event: Select.Changed):
-        if self.is_mounted and not self.loading:
+        if self.is_mounted and not self.fetching:
             self.index = 0
             self.load()
 
     def action_refresh(self):
-        if not self.loading:
+        if not self.fetching:
+            self.app.clear_catalog()
             self.load(refresh=True)
 
     def action_previous(self):
-        if not self.loading and self.index > 0:
+        if not self.fetching and self.index > 0:
             self.index -= 1
             self.load()
 
     def action_next(self):
-        if not self.loading and self.page and self.page.more:
+        if not self.fetching and self.page and self.page.more:
             self.index += 1
             self.load()
 
@@ -453,25 +516,29 @@ class Browser(BackScreen):
         if event.button.id.startswith('service-'):
             key = event.button.id.removeprefix('service-')
             _, title, callback = next(action for action in self.actions if action[0] == key)
-            def completed(_):
-                if getattr(self.source, 'reuse_cache_after_action', False):
-                    self.source.snapshot = None
-                    self.load()
-                else:
-                    self.load(refresh=True)
+            def completed(changed):
+                if changed:
+                    if self.fetching:
+                        self.pending_refresh = True
+                        return
+                    if getattr(self.source, 'reuse_cache_after_action', False):
+                        self.source.snapshot = None
+                        self.load()
+                    else:
+                        self.load(refresh=True)
             self.app.push_screen(Operation(title, callback), completed)
         else:
             getattr(self, 'action_' + event.button.id)()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected):
-        if self.loading or self.page is None:
+        if self.fetching or self.page is None:
             return
         row = self.page.rows[int(event.row_key.value)]
         if self.select_mode:
             self.dismiss(row)
             return
         self.selection = row_identity(row)
-        self.app.push_screen(Operation('资源操作', lambda: self.operate(row)), lambda _: self.load(refresh=getattr(self.source, 'refresh_after_action', True)))
+        self.app.push_screen(Operation('资源操作', lambda: self.operate(row)), lambda changed: self.load(refresh=True) if changed else None)
 
 
 class Form(BackScreen):
@@ -572,6 +639,15 @@ class SlaiApp(App):
         self.pending = set()
         self.identity_cache = {}
         self.proxy_generation = 0
+        import threading
+        self.catalog = {}
+        self.catalog_lock = threading.Lock()
+        self.catalog_generation = 0
+
+    def clear_catalog(self):
+        with self.catalog_lock:
+            self.catalog.clear()
+            self.catalog_generation += 1
 
     def compose(self) -> ComposeResult:
         yield Static('SLAI-tool', id='identity', classes='heading')

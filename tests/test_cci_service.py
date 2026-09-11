@@ -69,9 +69,9 @@ class CciServiceTests(unittest.TestCase):
 
     def test_list_actions_refresh_and_return(self):
         with patch.object(cci_service, 'my_apps', return_value=[self.app]) as listing, \
-             patch.object(cci_service, 'stop_app') as stop, \
-             patch.object(cci_service, 'delete_app') as delete, \
-             patch.object(cci_service, 'copy_app') as duplicate, \
+             patch.object(cci_service, 'stop_app', side_effect=lambda *a,**k:ui.mark_changed()) as stop, \
+             patch.object(cci_service, 'delete_app', side_effect=lambda *a,**k:ui.mark_changed()) as delete, \
+             patch.object(cci_service, 'copy_app', side_effect=lambda *a,**k:ui.mark_changed()) as duplicate, \
              patch('builtins.input', side_effect=['1', '2', '1', '1', '3', '1', '4', '1', '0']), \
              contextlib.redirect_stdout(io.StringIO()):
             cci_service.list_page({}, self.ws)

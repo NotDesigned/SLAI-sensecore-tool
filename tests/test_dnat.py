@@ -136,7 +136,7 @@ class DnatTests(unittest.TestCase):
         import contextlib
         import io
         with patch.object(dnat, 'all_my_rules', side_effect=[[(self.api, self.body)], []]) as listing, \
-             patch.object(dnat, 'delete_rule') as delete, \
+             patch.object(dnat, 'delete_rule', side_effect=lambda *a,**k:dnat.ui.mark_changed()) as delete, \
              patch.object(dnat, 'selected_rule', return_value=self.body), \
              patch('builtins.input', side_effect=['1', '1', '1', '0']), \
              contextlib.redirect_stdout(io.StringIO()) as output:
@@ -149,7 +149,7 @@ class DnatTests(unittest.TestCase):
         import contextlib
         import io
         with patch.object(dnat, 'all_my_rules', return_value=[(self.api, self.body)]), \
-             patch.object(dnat, 'delete_rule') as delete, \
+             patch.object(dnat, 'delete_rule', side_effect=lambda *a,**k:dnat.ui.mark_changed()) as delete, \
              patch.object(dnat, 'selected_rule', return_value=self.body), \
              patch('builtins.input', side_effect=['1', '1', '', '0']), \
              contextlib.redirect_stdout(io.StringIO()):
@@ -234,7 +234,7 @@ class DnatTests(unittest.TestCase):
         self.assertEqual(events, ['unbind', 'delete'])
         with patch.object(dnat, 'selected_rule', return_value=bound), \
              patch.object(dnat, 'unbind_rule', side_effect=cli.ConfigError('pending')), \
-             patch.object(dnat, 'delete_rule') as delete, contextlib.redirect_stdout(io.StringIO()):
+             patch.object(dnat, 'delete_rule', side_effect=lambda *a,**k:dnat.ui.mark_changed()) as delete, contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(cli.ConfigError):
                 dnat.remove_rule(self.api, bound, confirmed=True)
         delete.assert_not_called()

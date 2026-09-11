@@ -170,16 +170,16 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             await self.settle(pilot, lambda: browser.page is not None)
             self.assertEqual(browser.query_one(DataTable).row_count, 20)
             await pilot.press('right')
-            await self.settle(pilot, lambda: not browser.loading)
+            await self.settle(pilot, lambda: not browser.fetching)
             self.assertEqual(browser.index, 1)
             await pilot.press('/')
             browser.query_one(Input).value = 'image-09999'
             await pilot.press('enter')
-            await self.settle(pilot, lambda: not browser.loading)
+            await self.settle(pilot, lambda: not browser.fetching)
             self.assertEqual(browser.query_one(DataTable).row_count, 1)
             fetch.assert_called_once()
             await pilot.press('r')
-            await self.settle(pilot, lambda: not browser.loading)
+            await self.settle(pilot, lambda: not browser.fetching)
             self.assertEqual(fetch.call_count, 2)
             await pilot.press('0')
             self.assertEqual(len(app.screen_stack), 1)
@@ -205,7 +205,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.press('/')
                 app.screen.query_one(Input).value = 'image-999:cuda12'
                 await pilot.press('enter')
-                await self.settle(pilot, lambda: not app.screen.loading)
+                await self.settle(pilot, lambda: not app.screen.fetching)
                 self.assertEqual(app.screen.page.total, 1)
                 await pilot.press('enter')
                 await self.settle(pilot, lambda: app.screen is form and not form.busy)
@@ -358,6 +358,7 @@ class ListActionTests(unittest.IsolatedAsyncioTestCase):
         source=LocalSource(Mock(return_value=[]));created=Mock()
         def create():
             created()
+            ui.mark_changed()
             ui.show_text('创建表单', 'form content')
         app=SlaiApp()
         with patch.object(cli,'menu_title',return_value='SLAI-tool'), patch('scripts.proxy_settings.status',return_value='SOCKS5：测试状态'):
@@ -366,7 +367,7 @@ class ListActionTests(unittest.IsolatedAsyncioTestCase):
                 await app.push_screen(browser)
                 for _ in range(40):
                     await pilot.pause(.025)
-                    if not browser.loading:break
+                    if not browser.fetching and browser.query_one('#service-create',Button).region.width:break
                 self.assertEqual(len(browser.page.rows),0)
                 self.assertFalse(browser.query_one('#service-create',Button).disabled)
                 await pilot.click('#service-create')
@@ -383,6 +384,6 @@ class ListActionTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.press('0')
                 for _ in range(40):
                     await pilot.pause(.025)
-                    if app.screen is browser and not browser.loading:break
+                    if app.screen is browser and not browser.fetching:break
                 self.assertIs(app.screen,browser)
                 self.assertEqual(source.fetch.call_count,2)

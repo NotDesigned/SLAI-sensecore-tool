@@ -203,8 +203,7 @@ def list_page(config, workspace, plain=False):
                 delete_app(config, workspace, app['name'], expected=app)
                 print('删除已验证：' + app['name'])
     actions = [('create','创建 CCI',lambda: cci.create(cli.load_config(), workspace_name=workspace['name']))]
-    if config.get('cci', {}).get('last'):
-        actions.append(('create-last','按照上次配置',lambda: cci.create(cli.load_config(), workspace_name=workspace['name'],reuse_last=True)))
+    actions.append(('create-last','按照上次配置',lambda: cci.create(cli.load_config(), workspace_name=workspace['name'],reuse_last=True)))
     return ui.browse('我的 CCI · ' + workspace['name'], lambda: my_apps(config, workspace), label, selected, plain=plain, actions=actions)
 
 

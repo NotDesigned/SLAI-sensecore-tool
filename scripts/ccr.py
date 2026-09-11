@@ -15,7 +15,7 @@ def pages(config, base, field, *, camel=False):
     def fetch(token):
         query = {'pageSize': 100, 'pageToken': token} if camel else {'page_size': 100, 'page_token': token}
         separator = '&' if '?' in base else '?'
-        return get_json(config, base + separator + urllib.parse.urlencode(query))
+        return get_json(config, base + separator + urllib.parse.urlencode(query), timeout=120)
     return rest.pages(fetch, field)
 
 

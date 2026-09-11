@@ -254,8 +254,7 @@ def list_page(client, workspace, name=None, plain=False):
         action = ui.choose(label(row), ['返回列表', '详情', '停止', '复制', '删除'], default='返回列表')
         operate(client, workspace, row, action)
     actions = [('create','创建 ACP',lambda: main(['create','--workspace',workspace]))]
-    if client.config.get('acp', {}).get('last'):
-        actions.append(('create-last','按照上次配置',lambda: main(['create-last','--workspace',workspace])))
+    actions.append(('create-last','按照上次配置',lambda: main(['create-last','--workspace',workspace])))
     if ui.active() and not plain:
         return ui.backend().browse('我的 ACP · ' + workspace, JobSource(client, workspace, name or ''), selected, actions=actions)
     return ui.browse('我的 ACP', lambda: client.jobs(workspace, name=name), label, selected, plain=plain, actions=actions)

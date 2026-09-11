@@ -83,3 +83,24 @@ def invalidate(config, registry, namespace):
                     path.unlink()
             except (OSError,ValueError,KeyError,TypeError):
                 continue
+
+
+_event_guard = threading.Lock()
+
+
+def invalidate_snapshot(config, registry, namespace, identity):
+    """Remember completed snapshot identities across sessions, not every read."""
+    folder = directory(config)
+    if folder is None:
+        return
+    key = hashlib.sha256(json.dumps([registry, namespace, identity], sort_keys=True).encode()).hexdigest()
+    marker = folder / 'snapshot-events' / key
+    with _event_guard:
+        if marker.exists():
+            return
+        invalidate(config, registry, namespace)
+        try:
+            marker.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            marker.touch(mode=0o600)
+        except OSError:
+            pass

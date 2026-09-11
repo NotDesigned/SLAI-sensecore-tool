@@ -91,11 +91,11 @@ class RefreshUiTests(unittest.IsolatedAsyncioTestCase):
                 await app.push_screen(browser)
                 for _ in range(40):
                     await pilot.pause(.025)
-                    if not browser.loading:break
+                    if not browser.fetching:break
                 await pilot.press('r')
                 for _ in range(40):
                     await pilot.pause(.025)
-                    if not browser.loading and source.fetch.call_count==2:break
+                    if not browser.fetching and source.fetch.call_count==2:break
                 self.assertEqual(browser.page.rows,['existing-image'])
                 self.assertEqual(browser.query_one(DataTable).row_count,1)
                 self.assertIn('保留上次结果',str(browser.query_one('#counter',Static).render()))

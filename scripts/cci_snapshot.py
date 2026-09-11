@@ -36,7 +36,8 @@ def snapshots(config, workspace, app):
     rows = collection(config, workspace, current, 'snapshots')
     for row in rows:
         if row.get('state') == 'SUCCESS' and row.get('ccr_namespace'):
-            ccr_cache.invalidate(config, f"registry.{workspace['region']}.sensecore.cn", row['ccr_namespace'])
+            ccr_cache.invalidate_snapshot(config, f"registry.{workspace['region']}.sensecore.cn", row['ccr_namespace'],
+                [workspace, current['uid'], {k: row.get(k) for k in ('uid', 'name', 'image_tag', 'uri', 'create_time')}])
     return rows
 
 

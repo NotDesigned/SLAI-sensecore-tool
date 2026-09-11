@@ -71,7 +71,7 @@ class CreationTests(unittest.TestCase):
 class ImageSyncTests(unittest.TestCase):
     def plan(self):
         return dict(registry='registry.example',namespace='shared',source_image='my/app:v2',
-                    image_name='my/app',tag='v2',source_id=ID,target='registry.example/shared/my/app:v2')
+                    image_name='app',tag='v2',source_id=ID,target='registry.example/shared/app:v2')
 
     def test_plan_preserves_name_tag_without_upload(self):
         from scripts import ccr

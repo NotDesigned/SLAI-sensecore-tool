@@ -29,6 +29,8 @@ def request_json(config, url, *, method="GET", body=None, timeout=30, proxy=None
     settings = config['account']
     ak = cli.string_value(settings, 'access_key_id', required=True)
     sk = cli.string_value(settings, 'access_key_secret', required=True)
+    from scripts import ui
+    timeout = ui.request_timeout(timeout, method not in ('GET', 'HEAD'))
     date = email.utils.formatdate(usegmt=True)
     signature = base64.b64encode(hmac.new(sk.encode(), ('x-date: ' + date).encode(), hashlib.sha256).digest()).decode()
     auth = f'hmac accesskey="{ak}", algorithm="hmac-sha256", headers="x-date", signature="{signature}"'
@@ -82,10 +84,15 @@ def socks_json(request, proxy, timeout):
         raise cli.ConfigError(message) from None
 
 
-def get_json(config, url, *, timeout=120, proxy=None):
-    if proxy:
-        return request_json(config, url, timeout=timeout, proxy=proxy)
-    return request_json(config, url, timeout=timeout)
+def get_json(config, url, *, timeout=20, proxy=None):
+    def fetch():
+        if proxy:
+            return request_json(config, url, timeout=timeout, proxy=proxy)
+        return request_json(config, url, timeout=timeout)
+    if url == 'https://iam.sensecoreapi.cn/iam/idp/v1/me' or url.startswith('https://management.sensecoreapi.cn/rmh/v1/resources?'):
+        from scripts import ui
+        return ui.catalog_read(config, url, proxy, fetch)
+    return fetch()
 
 
 def query_url(base, values):
