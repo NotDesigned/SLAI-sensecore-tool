@@ -3,6 +3,7 @@ from scripts.ui import output as print
 import argparse
 import copy
 import re
+import time
 import urllib.parse
 import uuid
 
@@ -138,29 +139,47 @@ def connect_app(config, workspace, app, entries):
     check_selected(current, app)
     if current.get('state') != 'RUNNING':
         raise cli.ConfigError('CCI 已不在运行中，请刷新列表。')
-    rule = api.request('GET', '/' + urllib.parse.quote(selected['name'], safe=''))
+    # GetDNATRule currently loses the CCI target type (UNSPECIFIED), while
+    # ListDNATRules preserves it. Recheck only the selected EIP via that view.
+    rule = next((row for row in api.list() if row.get('name') == selected['name']), None)
+    def route(row):
+        props = row.get('properties', {})
+        return tuple(str(props.get(key, '')).lower() if key == 'protocol' else str(props.get(key, ''))
+                     for key in ('external_ip', 'external_port', 'internal_port', 'protocol',
+                                 'internal_instance_type', 'internal_instance_name', 'internal_ip', 'eip_id'))
     if (not isinstance(rule, dict) or rule.get('uid') != selected['uid']
-            or rule.get('properties') != selected.get('properties') or not bound_tcp_rule(rule, current)):
+            or route(rule) != route(selected) or not bound_tcp_rule(rule, current)):
         raise cli.ConfigError('DNAT 绑定或端口已变化，请返回列表重新选择，未生成旧入口的连接命令。')
     props = rule['properties']
     cci_ssh.show_connection(config, props['external_ip'], props['external_port'], app['name'])
 
 
 def list_page(config, workspace, plain=False):
+    # Scoped to this account/workspace/list session. Cached routes are discovery
+    # hints only; connect_app always revalidates the selected rule and CCI.
+    entry_cache = {}
     def selected(app):
-        entries = []
-        if app.get('state') == 'RUNNING':
-            print('正在检查此 CCI 绑定的连接入口…')
-            try:
-                entries = connection_entries(config, workspace, app)
-            except (cli.ConfigError, OSError):
-                print('连接入口查询未完成，请稍后重新选择；仍可进行其他实例操作。')
-        choices = ['返回列表', *(['连接'] if entries else []),
+        choices = ['返回列表', *(['连接'] if app.get('state') == 'RUNNING' else []),
                    *(['保存为镜像'] if app.get('state') == 'RUNNING' else []), '镜像快照',
                    '启动' if app.get('state') == 'SUSPENDED' else '停止', '复制', '删除']
         action = ui.choose(label(app), choices, default='返回列表')
         if action == '连接':
-            connect_app(config, workspace, app, entries)
+            key = (app['name'], app['uid'])
+            try:
+                cached = entry_cache.get(key)
+                if cached and time.monotonic() - cached[0] < 30:
+                    entries = cached[1]
+                else:
+                    print('正在查找此 CCI 的连接入口…')
+                    entries = connection_entries(config, workspace, app)
+                    if entries:
+                        entry_cache[key] = (time.monotonic(), entries)
+                if not entries:
+                    raise cli.ConfigError('此 CCI 没有可用的 TCP DNAT 入口，请先在 DNAT 服务中绑定规则。')
+                connect_app(config, workspace, app, entries)
+            except (cli.ConfigError, OSError):
+                entry_cache.pop(key, None)
+                raise
         elif action == '启动':
             start_app(config, workspace, app['name'], expected=app)
             print('启动请求已确认，请在列表刷新运行状态：' + app['name'])
