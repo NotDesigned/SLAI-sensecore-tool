@@ -1,0 +1,42 @@
+{
+  "date": "2026-09-11",
+  "scope": "CCI runtime image snapshot via REST",
+  "source": "slai-snapshot-466b717c",
+  "snapshot_uid": "3c8f7fbf-c5cd-45bc-9671-24db3d56c4f5",
+  "image_uri": "registry.cn-sh-01.sensecore.cn/ccr-zhicheng-02/slai-snapshot-466b717c:main-20260911153738",
+  "snapshot_state": "SUCCESS",
+  "restored_cci": "slai-snapshot-466b717c-key",
+  "checks": {
+    "authenticated_snapshot_create_and_list": true,
+    "source_ssh_resumed": true,
+    "restored_image_ssh_login": true,
+    "runtime_marker_preserved": true,
+    "installed_sshd_preserved": true,
+    "new_instance_ssh_host_key_is_unique": true,
+    "real_textual_list_and_refresh": true
+  },
+  "resources": {
+    "vcpu": 2,
+    "memory_gib": 4,
+    "accelerators": 0,
+    "user_afs_mounted": false
+  },
+  "tests": {
+    "total": 250,
+    "passed": 248,
+    "windows_skipped": 2
+  },
+  "cleanup": [
+    "dnat",
+    "slai-snapshot-466b717c-key",
+    "slai-snapshot-466b717c",
+    "test_image",
+    "earlier_restore_attempt_and_service"
+  ],
+  "test_harness_notes": [
+    "DNAT migration used the list response to match the production selection flow; the detail response did not pass existing consistency checks.",
+    "Reusing a just-deleted CCI name encountered Service HTTP 409; the host-key recheck used a unique name."
+  ],
+  "api_source": "https://console.sensecore.cn/micro/cn-sh-01/cci/368.e5c09b90.async.js",
+  "cleanup_verified": true
+}

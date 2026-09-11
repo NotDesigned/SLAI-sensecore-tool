@@ -71,9 +71,14 @@ fi
 umask 077
 mkdir -p /run/sshd /run/slai-ssh
 chmod 700 /run/slai-ssh
+instance=$(hostname)
+if [ "$(cat /run/slai-ssh/instance 2>/dev/null || true)" != "$instance" ]; then
+    rm -f /run/slai-ssh/host_ed25519 /run/slai-ssh/host_ed25519.pub
+fi
 if [ ! -f /run/slai-ssh/host_ed25519 ]; then
     ssh-keygen -q -t ed25519 -N '' -f /run/slai-ssh/host_ed25519
 fi
+printf '%s\\n' "$instance" > /run/slai-ssh/instance
 '''
     script += "printf '%s\\n' " + shlex.quote(key) + ' > /run/slai-ssh/authorized_keys\n'
     script += "printf '%s\\n' " + shlex.quote(config) + ' > /run/slai-ssh/sshd_config\n'

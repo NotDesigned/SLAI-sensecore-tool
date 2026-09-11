@@ -33,7 +33,7 @@ def label(app):
 
 # Shared identity checks also protect DNAT target binding.
 from scripts.cci_api import (owned as owned_app, check_identity as check_selected,
-                             stop as stop_app, delete as delete_app, resource_url)
+                             start as start_app, stop as stop_app, delete as delete_app, resource_url)
 
 
 def copy_document(source):
@@ -155,13 +155,29 @@ def list_page(config, workspace, plain=False):
                 entries = connection_entries(config, workspace, app)
             except (cli.ConfigError, OSError):
                 print('连接入口查询未完成，请稍后重新选择；仍可进行其他实例操作。')
-        choices = ['返回列表', *(['连接'] if entries else []), '停止', '复制', '删除']
+        choices = ['返回列表', *(['连接'] if entries else []),
+                   *(['保存为镜像'] if app.get('state') == 'RUNNING' else []), '镜像快照',
+                   '启动' if app.get('state') == 'SUSPENDED' else '停止', '复制', '删除']
         action = ui.choose(label(app), choices, default='返回列表')
         if action == '连接':
             connect_app(config, workspace, app, entries)
+        elif action == '启动':
+            start_app(config, workspace, app['name'], expected=app)
+            print('启动请求已确认，请在列表刷新运行状态：' + app['name'])
+        elif action in ('保存为镜像', '镜像快照'):
+            from scripts import cci_snapshot
+            if action == '保存为镜像':
+                cci_snapshot.create_interactive(config, workspace, app)
+            else:
+                cci_snapshot.list_page(config, workspace, app)
         elif action == '复制':
             copy_app(config, workspace, app['name'])
-        elif action in ('删除', '停止') and ui.confirm(f'确认{action}此 CCI：' + app['name'], action):
+        elif action in ('删除', '停止'):
+            message = f'确认{action}此 CCI：' + app['name']
+            if action == '停止':
+                message += '\n需要保留的容器内修改请先保存为镜像，或写入挂载存储；启动不会恢复临时文件。'
+            if not ui.confirm(message, action):
+                return
             if action == '停止':
                 stop_app(config, workspace, app['name'], expected=app)
             else:
@@ -175,7 +191,7 @@ def list_page(config, workspace, plain=False):
 
 
 def main(args):
-    parser = argparse.ArgumentParser(description='CCI 服务：创建、列出并选择连接 / 停止 / 复制 / 删除。')
+    parser = argparse.ArgumentParser(description='CCI 服务：创建、列出并选择连接 / 保存为镜像 / 启动 / 停止 / 复制 / 删除。')
     parser.add_argument('action', nargs='?', choices=['create', 'create-last', 'list', 'delete'], default='list')
     parser.add_argument('--workspace', help='本次操作的工作空间，省略则使用已保存的默认工作空间')
     parser.add_argument('--name', help='待删除的 CCI 名称，省略则编号选择')

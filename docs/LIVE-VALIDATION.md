@@ -55,3 +55,19 @@ ACP 默认闲时资源已在计算池成功提交并运行。调试池曾返回 
 账户、工作空间和 SOCKS5 配置已移至顶部按钮，服务列表保留四项。通过实际 Textual 布局检查及按钮操作测试；本机已配置的 SOCKS5 实测握手与用户名密码认证通过，未修改本机配置。此结果不代表特定 CCI 可达。
 
 本轮全套检查 242 项：240 项通过，2 项原生 Windows 检查跳过。代理协议测试使用本地真实 socket，覆盖无需认证、用户名密码认证、分片响应、错误协议、拒绝认证及超时；配置测试覆盖保留密码、切换地址重新输入、取消不保存和关闭代理。
+
+## CCI 保存为镜像（2026-09-11）
+
+运行中主容器经 REST 保存到 CCR，镜像状态 SUCCESS；源容器恢复 SSH。使用生成的镜像创建新 CCI，经 SSH 验证运行时文件和安装的 sshd 保留。实测发现快照保留 SSH 主机密钥，已修复默认启动脚本，并在云端验证新实例生成不同主机密钥。本地测试验证同一实例重启保持密钥。真实 Textual 快照列表和刷新通过。250 项测试中 248 项通过，2 项原生 Windows 测试跳过。所有临时 CCI、Service、DNAT 和测试镜像已清理；未挂载用户 AFS。
+
+接口与边界见 [CCI-SNAPSHOTS.md](CCI-SNAPSHOTS.md)，机器可读记录见 [snapshot-validation.json](snapshot-validation.json)。
+
+## 研究流程与 CCI 原地启动（2026-09-12）
+
+已完成：官方标准 PyTorch 镜像创建 CCI → SSH 准备 MNIST 代码 → REST 保存镜像 → 停止开发 CCI → ACP 闲时资源执行训练 → 新标准镜像 CCI 通过 SSH 读取 AFS 日志与模型 → 从真实菜单启动原 CCI 并再次读取相同结果。原地启动前后 CCI UID 与 Service UID 相同，没有创建副本。停止再启动后，未挂载目录内的临时代码消失，AFS 文件保留；停止确认已补充保存提醒。
+
+2 vCPU、4 GiB、0 加速卡，完整 60,000 张训练集与 10,000 张测试集，两轮训练。测试准确率从 11.37% 提高到 94.25%，测试损失从 2.3102 降至 0.2005；代码与模型 SHA-256、模型加载均通过核验。这是服务集成测试，不是性能基准。代码、日志和模型保留在 AFS `/data/slai-mnist-b29a1a45`；临时 CCI、Service、ACP、DNAT 和镜像已删除，原有 DNAT 规则未变。256 项测试中 254 项通过，2 项原生 Windows 测试跳过。
+
+非正常步骤：云内下载慢，改为本机从 CVDF 镜像下载、MD5 校验后经 SSH 上传 AFS；预装 SSH 镜像在两个命名空间保存均返回 PUSHFAILED，官方标准镜像保存成功，失败原因未确定。测试期间本地 Docker 默认命名空间由 05 改为 04，当前配置保留，未回滚。
+
+复现步骤见 [MNIST 示例](../examples/mnist/README.md)，详细数据见 [mnist-workflow-validation.json](mnist-workflow-validation.json)。

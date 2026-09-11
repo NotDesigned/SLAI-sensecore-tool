@@ -1,0 +1,95 @@
+{
+  "verified_at_utc": "2026-09-11T16:30:01.030235+00:00",
+  "purpose": "Service integration smoke test using real MNIST training; not a model benchmark",
+  "base_image": "registry.cn-sh-01.sensecore.cn/lepton-trainingjob/ngc-pytorch:25.06-cu12.9-py3.12-ubuntu24.04",
+  "saved_image": "registry.cn-sh-01.sensecore.cn/ccr-zhicheng-02/slai-mnist-b29a1a45-standard:main-20260911161646",
+  "snapshot_state": "SUCCESS",
+  "training_job": {
+    "name": "slai-mnist-b29a1a45-train",
+    "uid": "c94fc3fd24364bcaa5b4bcb36029a910",
+    "state": "SUCCEEDED",
+    "quota": "SPOT",
+    "vcpu": 2,
+    "memory_gib": 4,
+    "accelerators": 0
+  },
+  "result": {
+    "status": "completed",
+    "device": "cpu",
+    "epochs": 2,
+    "train_samples": 60000,
+    "test_samples": 10000,
+    "seed": 2026,
+    "torch_version": "2.8.0a0+5228986c39.nv25.06",
+    "elapsed_seconds": 2.501,
+    "baseline": {
+      "test_accuracy": 0.1137,
+      "test_loss": 2.3102304668426514
+    },
+    "test_accuracy": 0.9425,
+    "test_loss": 0.20049754509925843,
+    "code_sha256": "1893a8d3db7c0a7967775f929474bcef5ecd7b7ef841cdf8ea494ae5d4675b3d",
+    "checkpoint_sha256": "887516ba059f163e2c7b6b545d3898eefd45c0bbc56f64826817d653c52e6b48"
+  },
+  "shared_directory_retained": "/data/slai-mnist-b29a1a45",
+  "checks": {
+    "code_written_over_ssh_and_preserved_in_image": true,
+    "full_mnist_data": true,
+    "dev_stopped_before_acp_submission": true,
+    "fresh_standard_cci_reads_shared_logs": true,
+    "checkpoint_loaded_and_hash_verified": true,
+    "real_start_menu_retains_app_and_service_uids": {
+      "app_name": "slai-mnist-b29a1a45-dev",
+      "same_app_uid": "670beec75a6443b685b3226c15407d32",
+      "state_after_request": "SCHEDULED",
+      "same_service_uid": "1234c56f-f0c9-43a4-9e2d-c92f10709e13",
+      "passed": true
+    },
+    "restarted_cci_reads_same_results": true,
+    "runtime_code_exists_after_stop_start": false,
+    "original_dnat_rules_unchanged": true,
+    "config_unchanged": false
+  },
+  "configuration_note": "During the run, the default Docker namespace changed from ccr-zhicheng-05 to ccr-zhicheng-04. The current config was preserved; validation scripts do not write this setting.",
+  "cleanup": [
+    "dnat",
+    "acp",
+    "previous_dev:slai-mnist-b29a1a45-dev",
+    "reader_cci_and_service",
+    "dev_cci_and_service",
+    "test_repository_absent:ccr-zhicheng-02/slai-mnist-b29a1a45",
+    "test_repository_absent:ccr-zhicheng-02/slai-mnist-b29a1a45-standard",
+    "test_repository_absent:ccr-zhicheng-05/slai-mnist-b29a1a45"
+  ],
+  "cleanup_verified": true,
+  "tests": {
+    "total": 256,
+    "passed": 254,
+    "native_windows_skipped": 2
+  },
+  "dataset_source": "https://github.com/cvdfoundation/mnist",
+  "dataset_md5": {
+    "t10k-images-idx3-ubyte.gz": "9fb629c4189551a2d022fa330f9573f3",
+    "t10k-labels-idx1-ubyte.gz": "ec29112dd5afa0611ce80d1b7f02629c",
+    "train-images-idx3-ubyte.gz": "f68b3c2dcbeaaa9fbdd348bbdeb94873",
+    "train-labels-idx1-ubyte.gz": "d53e105ee54ea40749a09fcbcd1e9432"
+  },
+  "non_nominal_steps": [
+    "Cloud download was slow. CVDF files were downloaded locally, MD5-checked and transferred over SSH to AFS; ACP required no external download.",
+    "The preinstalled SSH base image returned PUSHFAILED in two namespaces. The official standard image succeeded; the underlying failure cause was not established."
+  ],
+  "failed_snapshot_attempts": [
+    {
+      "name": "slai-mnist-b29a1a45",
+      "namespace": "ccr-zhicheng-05",
+      "state": "FAIL",
+      "reason_code": "PUSHFAILED"
+    },
+    {
+      "name": "slai-mnist-b29a1a45",
+      "namespace": "ccr-zhicheng-02",
+      "state": "FAIL",
+      "reason_code": "PUSHFAILED"
+    }
+  ]
+}

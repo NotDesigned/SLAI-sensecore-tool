@@ -30,6 +30,18 @@ class SshTests(unittest.TestCase):
             else:
                 self.assertIn('exec /bin/sh -c', script)
 
+    def test_snapshot_host_key_changes_only_for_new_instance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            script = cci_ssh.startup('ssh-ed25519 AAAA')
+            setup = script[script.index('umask 077'):script.index("printf '%s\\n' 'ssh-ed25519")]
+            setup = setup.replace('/run/sshd', directory + '/sshd').replace('/run/slai-ssh', directory + '/ssh')
+            def run(instance):
+                subprocess.run(['sh', '-c', setup.replace('$(hostname)', instance)], check=True, capture_output=True)
+                return Path(directory, 'ssh', 'host_ed25519.pub').read_text()
+            first = run('instance-one')
+            self.assertEqual(run('instance-one'), first)
+            self.assertNotEqual(run('instance-two'), first)
+
     def test_key_validation_with_actual_openssh(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'key'

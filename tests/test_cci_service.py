@@ -71,7 +71,7 @@ class CciServiceTests(unittest.TestCase):
              patch.object(cci_service, 'stop_app') as stop, \
              patch.object(cci_service, 'delete_app') as delete, \
              patch.object(cci_service, 'copy_app') as duplicate, \
-             patch('builtins.input', side_effect=['1', '1', '1', '1', '2', '1', '3', '1', '0']), \
+             patch('builtins.input', side_effect=['1', '2', '1', '1', '3', '1', '4', '1', '0']), \
              contextlib.redirect_stdout(io.StringIO()):
             cci_service.list_page({}, self.ws)
         stop.assert_called_once_with({}, self.ws, 'mine', expected=self.app)

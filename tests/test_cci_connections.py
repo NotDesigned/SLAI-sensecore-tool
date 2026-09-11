@@ -54,3 +54,4 @@ class ConnectionTests(unittest.TestCase):
                 cci_service.list_page({},WS)
             self.assertEqual('连接' in choose.call_args.args[1],wanted)
             self.assertEqual(scan.call_count,int(state=='RUNNING'))
+            self.assertEqual('保存为镜像' in choose.call_args.args[1], state=='RUNNING')

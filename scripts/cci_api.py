@@ -101,6 +101,26 @@ def create(config, plan):
     return app
 
 
+def start(config, workspace, name, expected=None):
+    app = owned(config, workspace, name)
+    check_identity(app, expected)
+    if app.get('state') == 'RUNNING':
+        return app
+    if app.get('state') != 'SUSPENDED':
+        raise cli.ConfigError('仅支持启动已停止的 CCI，请刷新列表查看状态。')
+    url = resource_url(workspace, name)
+    rest.request_json(config, url + ':start', method='POST', body={}, timeout=90)
+    for _ in range(30):
+        current = optional(config, url)
+        check_identity(current, app)
+        if current.get('state') in ('SCHEDULED', 'PROGRESSING', 'RUNNING'):
+            return current
+        if current.get('state') in ('FAILED', 'DELETING', 'DELETED'):
+            raise cli.ConfigError('CCI 启动后状态异常，请查看实例事件。')
+        time.sleep(2)
+    raise cli.ConfigError('启动已提交，但尚未确认状态变化，请刷新列表，勿重复提交。')
+
+
 def stop(config, workspace, name, expected=None):
     app = owned(config, workspace, name)
     check_identity(app, expected)
