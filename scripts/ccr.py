@@ -1,6 +1,5 @@
 """CCR service menu and accessible repository listing through REST."""
 from scripts.ui import output as print
-import argparse
 import re
 import urllib.parse
 
@@ -159,11 +158,15 @@ def list_images(config, namespace_name=None, plain=False):
 
 
 def main(args):
-    parser = argparse.ArgumentParser(description='CCR 服务：上传镜像或通过 REST 列出可访问镜像。')
-    parser.add_argument('action', nargs='?', choices=['upload', 'list'], default='list')
+    parser = cli.service_parser('ccr', {'list':'列出可访问的命名空间或指定命名空间内的镜像',
+        'upload':'交互选择本地 Docker 镜像、命名空间和目标名称后上传'},
+        'CCR 镜像服务。范围是当前账号可访问，并非仅本人创建。',
+        '示例：uv run main.py ccr list --plain --namespace my-namespace')
     parser.add_argument('--namespace', help='列表查询的命名空间；省略则编号选择')
-    parser.add_argument('--plain', action='store_true', help='仅打印镜像引用，不进入界面')
+    parser.add_argument('--plain', action='store_true', help='仅 list：打印后退出；未指定 --namespace 时列出命名空间')
     options = parser.parse_args(args)
+    if options.action == 'upload' and (options.namespace or options.plain):
+        parser.error('--namespace/--plain 仅适用于 list；上传命名空间在交互中选择')
     config = cli.load_config(for_setup=True)
     if options.action == 'upload':
         push_image(config)

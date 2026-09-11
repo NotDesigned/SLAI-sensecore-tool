@@ -62,7 +62,7 @@ class CciServiceTests(unittest.TestCase):
         client = Mock()
         client.resources.return_value = [self.ws]
         with patch.object(cli, 'load_config', return_value={}), patch.object(cloud, 'Client', return_value=client):
-            with patch.object(cci_service, 'my_apps', return_value=[self.app]), patch.object(cci_service, 'delete_app') as delete:
+            with patch.object(cci_service, 'owned_app', return_value=self.app), patch.object(cci_service, 'delete_app') as delete:
                 with patch('builtins.input', return_value=''), contextlib.redirect_stdout(io.StringIO()):
                     cci_service.main(['delete', '--workspace', 'ws', '--name', 'mine'])
         delete.assert_not_called()

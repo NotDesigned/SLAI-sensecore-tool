@@ -1,6 +1,5 @@
 """ACP training jobs: explicit startup scripts and owner-scoped operations."""
 from scripts.ui import output as print
-import argparse
 import json
 import re
 import time
@@ -263,12 +262,33 @@ def list_page(client, workspace, name=None, plain=False):
 
 
 def main(args):
-    parser = argparse.ArgumentParser(description='ACP 长任务：创建和列表内操作。')
-    parser.add_argument('action', nargs='?', choices=['create', 'create-last', 'list'], default='list')
-    parser.add_argument('--workspace')
-    parser.add_argument('--name', help='按任务名称前缀筛选列表')
-    parser.add_argument('--plain', action='store_true')
+    parser = cli.service_parser('acp', {'list':'本人任务列表',
+        'create':'创建配置表（默认闲时资源）', 'create-last':'回填上次配置后编辑创建',
+        'describe':'打印任务详情', 'copy':'回填源任务，在配置表编辑后创建',
+        'stop':'停止任务', 'delete':'删除任务'},
+        'ACP 长任务管理。复制不自动恢复训练 checkpoint。',
+        '示例：uv run main.py acp list --plain --state RUNNING --page 1')
+    parser.add_argument('--workspace', help='工作空间名称；省略则使用默认项或交互选择')
+    parser.add_argument('--name', help='list：名称前缀；其他操作：目标完整名称；省略则交互选择')
+    parser.add_argument('--plain', action='store_true', help='仅 list：打印一页后退出，默认第 1 页、每页 20 条')
+    parser.add_argument('--page', type=int, help='仅 list --plain：页码，从 1 开始')
+    parser.add_argument('--page-size', type=int, help='仅 list --plain：每页条数，1–500')
+    parser.add_argument('--state', choices=['RUNNING','PENDING','SUSPENDED','SUCCEEDED','FAILED'],
+                        help='仅 list --plain：按任务状态筛选')
+    parser.add_argument('--yes', action='store_true', help='仅 stop/delete：跳过确认，仍核对目标身份')
     options = parser.parse_args(args)
+    if options.yes and options.action not in ('stop','delete'):
+        parser.error('--yes 仅适用于 stop/delete')
+    if options.plain and options.action != 'list':
+        parser.error('--plain 仅适用于 list')
+    if any(v is not None for v in (options.page,options.page_size,options.state)) and not options.plain:
+        parser.error('--page/--page-size/--state 需要 list --plain')
+    if options.page is not None and options.page < 1:
+        parser.error('--page 必须大于等于 1')
+    if options.page_size is not None and not 1 <= options.page_size <= 500:
+        parser.error('--page-size 必须为 1–500')
+    if options.name and options.action in ('create','create-last'):
+        parser.error('创建名称请在配置表中填写')
     client = Client(cli.load_config())
     from scripts.workspace import select
     workspace = select(client, explicit=options.workspace)
@@ -281,6 +301,21 @@ def main(args):
         draft = CreateDraft('acp', client, workspace, previous=previous)
         name, document = ui.creation_form(draft)
         confirm_submit(client, workspace['name'], name, document, draft=draft)
+    elif options.action == 'list':
+        if options.plain:
+            page = client.jobs_page(workspace['name'], (options.page or 1)-1, options.page_size or 20,
+                                    options.name or '', options.state or '')
+            for row in page.rows:
+                print(label(row))
+            print(f'第 {options.page or 1} 页 · 本页 {len(page.rows)} 条 · ' + ('还有下一页' if page.more else '没有下一页'))
+        else:
+            list_page(client, workspace['name'], name=options.name)
     else:
-        list_page(client, workspace['name'], name=options.name, plain=options.plain)
+        row = client.owned(workspace['name'], options.name) if options.name else ui.choose(
+            '选择目标 ACP', client.jobs(workspace['name']), label)
+        if options.yes:
+            client.control(workspace['name'], row['name'], options.action, row)
+            print(('停止' if options.action == 'stop' else '删除') + '已验证：' + row['name'])
+        else:
+            operate(client, workspace['name'], row, {'describe':'详情','copy':'复制','stop':'停止','delete':'删除'}[options.action])
     return 0

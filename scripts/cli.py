@@ -263,11 +263,64 @@ def menu():
         execute(MENU_ITEMS[int(choice) - 1][0])
 
 
+def service_parser(service, actions, description, examples=''):
+    import argparse
+    parser = argparse.ArgumentParser(prog=f'uv run main.py {service}',
+        description=description, formatter_class=argparse.RawDescriptionHelpFormatter, add_help=False,
+        epilog='操作：\n' + '\n'.join(f'  {key:<14} {value}' for key,value in actions.items()) +
+               '\n\n使用 --text 强制文本交互；创建/复制会打开可编辑配置表，仍需交互输入。\n' + examples)
+    parser.add_argument('-h', '--help', action='help', help='显示此帮助并退出')
+    parser.add_argument('action', nargs='?', choices=list(actions), default='list' if 'list' in actions else next(iter(actions)),
+                        help='要执行的操作，默认 %(default)s')
+    return parser
+
+
 def show_help():
-    print('用法：uv run main.py  （打开 Textual 界面；--text 使用文本菜单）')
-    print('服务：ccr、cci、dnat、acp；在服务名后加 --help 查看操作参数。')
-    print('设置：configure（配置账户）、workspace（选择默认工作空间）')
-    print('示例：uv run main.py cci list\n      uv run main.py acp create --workspace 工作空间名称')
+    print('''用法：uv run main.py [--text] [服务或设置] [操作] [参数]
+
+不带参数：在交互终端打开 Textual；--text 强制使用文本菜单。
+服务：
+  cci         创建、列表、详情、连接、启动、停止、复制、删除、镜像快照
+  acp         创建、列表、详情、停止、复制、删除
+  dnat        创建、列表、详情、绑定 CCI、解绑、删除
+  ccr         可访问命名空间/镜像列表、上传本地镜像
+设置：
+  configure   配置并验证账户
+  workspace   选择并保存默认工作空间
+  proxy       配置 SOCKS5；proxy status 检测当前代理
+  guide       显示使用指南
+
+任一服务/设置后加 --help 查看参数。0 返回；文本输入 q 取消。
+创建和复制仍需交互选择；--yes 仅跳过指定操作的确认，不补全缺失参数。
+普通列表可用 --plain 输出；ACP 支持 --page、--page-size、--state。
+密钥和代理密码保存在本地 config.toml，不通过命令参数传递。
+
+示例：
+  uv run main.py --text cci copy --name my-cci
+  uv run main.py --text cci connect --name my-cci
+  uv run main.py acp list --plain --state RUNNING --page 1
+  uv run main.py ccr list --plain --namespace my-namespace
+  uv run main.py proxy status''')
+
+
+def setting(name, args):
+    import argparse
+    from scripts import proxy_settings, onboarding
+    descriptions = {'configure':'配置并验证 AccessKey，首次设置后选择工作空间。',
+                    'workspace':'从可访问工作空间中选择并保存默认项。',
+                    'proxy':'配置 SOCKS5 或检测当前代理握手、认证。',
+                    'guide':'显示研究任务使用指南。'}
+    parser = argparse.ArgumentParser(prog='uv run main.py ' + name, description=descriptions[name], add_help=False)
+    parser.add_argument('-h', '--help', action='help', help='显示此帮助并退出')
+    if name == 'proxy':
+        parser.add_argument('action', nargs='?', choices=['configure','status'], default='configure',
+                            help='configure 交互配置；status 只读检测，默认 configure')
+    options = parser.parse_args(args)
+    if name in ('configure','workspace'):
+        return execute(name)
+    if name == 'guide':
+        return guarded(onboarding.guide)
+    return guarded(lambda: print(proxy_settings.status()) if options.action == 'status' else proxy_settings.configure())
 
 
 def main():
@@ -291,11 +344,11 @@ def main():
                 from scripts.tui import run as run_tui
                 return run_tui(sys.argv[1] if len(sys.argv) == 2 else lambda: run_service(sys.argv[1], sys.argv[2:]))
             return run_service(sys.argv[1], sys.argv[2:])
-        if len(sys.argv) == 2 and sys.argv[1] in ('configure', 'workspace'):
-            if not text_mode and sys.stdin.isatty() and sys.stdout.isatty():
+        if sys.argv[1] in ('configure', 'workspace', 'proxy', 'guide'):
+            if not text_mode and sys.stdin.isatty() and sys.stdout.isatty() and not any(x in sys.argv for x in ('--help','-h','status')) and sys.argv[1] != 'guide':
                 from scripts.tui import run as run_tui
-                return run_tui(lambda: execute(sys.argv[1]))
-            return execute(sys.argv[1])
+                return run_tui(lambda: setting(sys.argv[1], sys.argv[2:]))
+            return setting(sys.argv[1], sys.argv[2:])
         print('未知命令或参数；使用 uv run main.py --help 查看用法。', file=sys.stderr)
         return 2
     except (EOFError, KeyboardInterrupt):

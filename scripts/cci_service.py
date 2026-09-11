@@ -1,6 +1,5 @@
 """CCI creation and instance actions, scoped to the current user."""
 from scripts.ui import output as print
-import argparse
 import copy
 import re
 import time
@@ -213,13 +212,24 @@ def list_page(config, workspace, plain=False):
 
 
 def main(args):
-    parser = argparse.ArgumentParser(description='CCI 服务：创建、列出并选择连接 / 保存为镜像 / 启动 / 停止 / 复制 / 删除。')
-    parser.add_argument('action', nargs='?', choices=['create', 'create-last', 'list', 'delete'], default='list')
-    parser.add_argument('--workspace', help='本次操作的工作空间，省略则使用已保存的默认工作空间')
-    parser.add_argument('--name', help='待删除的 CCI 名称，省略则编号选择')
-    parser.add_argument('--yes', action='store_true', help='跳过删除确认')
-    parser.add_argument('--plain', action='store_true', help='仅打印列表，不进入实例操作页面')
+    parser = cli.service_parser('cci', {
+        'list':'列出本人 CCI；选择实例可进入操作菜单', 'create':'创建配置表',
+        'create-last':'回填上次配置后编辑创建', 'describe':'打印实例详情', 'connect':'查找 DNAT 并显示 SSH 命令',
+        'start':'启动已停止的 CCI', 'stop':'停止 CCI', 'copy':'回填源模板，在配置表编辑后创建',
+        'delete':'删除 CCI 及仍归属它的端口 Service', 'snapshot':'将运行容器保存为镜像',
+        'snapshots':'列出镜像快照及状态'},
+        'CCI 服务：通过 REST 管理本人实例。', '示例：uv run main.py --text cci copy --name my-cci')
+    parser.add_argument('--workspace', help='工作空间名称；省略则使用默认项或交互选择')
+    parser.add_argument('--name', help='目标 CCI 的完整名称；省略则交互选择（不用于创建命名）')
+    parser.add_argument('--yes', action='store_true', help='仅 stop/delete：跳过确认，仍执行身份检查')
+    parser.add_argument('--plain', action='store_true', help='仅 list/snapshots：打印列表后退出')
     options = parser.parse_args(args)
+    if options.yes and options.action not in ('stop','delete'):
+        parser.error('--yes 仅适用于 stop/delete')
+    if options.plain and options.action not in ('list','snapshots'):
+        parser.error('--plain 仅适用于 list/snapshots')
+    if options.name and options.action in ('create','create-last','list'):
+        parser.error('--name 用于指定操作目标；创建名称请在配置表中填写')
     config = cli.load_config()
     if options.action in ('create','create-last'):
         cci.create(config, workspace_name=options.workspace, reuse_last=options.action=='create-last')
@@ -230,12 +240,30 @@ def main(args):
     if options.action == 'list':
         list_page(config, workspace, plain=options.plain)
         return 0
-    apps = my_apps(config, workspace)
-    app = next((x for x in apps if x['name'] == options.name), None) if options.name else ui.choose('选择要删除的 CCI', apps, label)
-    if app is None:
-        raise cli.ConfigError('CCI 不存在或不属于当前用户。')
-    print(label(app))
-    if options.yes or ui.choose('确认删除此 CCI', ['取消', '删除'], default='取消') == '删除':
-        delete_app(config, workspace, app['name'], expected=app)
-        print('删除已验证：' + app['name'])
+    app = owned_app(config, workspace, options.name) if options.name else ui.choose(
+        '选择目标 CCI', my_apps(config, workspace), label)
+    action = options.action
+    if action == 'describe':
+        import json
+        ui.show_text('CCI 详情', json.dumps(app, ensure_ascii=False, indent=2))
+    elif action == 'copy':
+        copy_app(config, workspace, app['name'])
+    elif action == 'start':
+        start_app(config, workspace, app['name'], expected=app)
+        print('启动已验证：' + app['name'])
+    elif action == 'connect':
+        entries = connection_entries(config, workspace, app)
+        if not entries:
+            raise cli.ConfigError('没有可用的连接入口；请确认 CCI 正在运行，并在 DNAT 服务绑定 TCP 规则。')
+        connect_app(config, workspace, app, entries)
+    elif action in ('snapshot','snapshots'):
+        from scripts import cci_snapshot
+        if action == 'snapshot':
+            cci_snapshot.create_interactive(config, workspace, app)
+        else:
+            cci_snapshot.list_page(config, workspace, app, plain=options.plain)
+    elif options.yes or ui.confirm('确认' + ('停止' if action == 'stop' else '删除') + '此 CCI：' + app['name'] +
+            ('\n需要保留的容器内修改请先保存为镜像或写入挂载存储。' if action == 'stop' else ''), '停止' if action == 'stop' else '删除'):
+        (stop_app if action == 'stop' else delete_app)(config, workspace, app['name'], expected=app)
+        print(('停止' if action == 'stop' else '删除') + '已验证：' + app['name'])
     return 0

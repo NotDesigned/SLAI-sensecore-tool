@@ -1,6 +1,5 @@
 """Create, list and delete DNAT rules with HTTP and read-back validation."""
 from scripts.ui import output as print
-import argparse
 from concurrent.futures import ThreadPoolExecutor
 import json
 import re
@@ -358,20 +357,29 @@ def list_page(config, eip_name=None, plain=False):
 
 
 def main(args):
-    parser = argparse.ArgumentParser(description='DNAT 规则管理：创建、列出、绑定已有 CCI、解绑、删除。')
-    parser.add_argument('action', nargs='?', choices=['create', 'list', 'delete'], default='list')
-    parser.add_argument('--eip', help='可选 EIP 范围；创建时省略则编号选择，列表默认汇总全部')
-    parser.add_argument('--plain', action='store_true', help='仅打印列表，不进入规则操作页面')
-    parser.add_argument('--name', help='待删除规则名称；省略则编号选择')
-    parser.add_argument('--yes', action='store_true', help='跳过创建/删除确认；删除已绑定规则会先解绑')
+    parser = cli.service_parser('dnat', {'list':'汇总本人创建的规则', 'create':'交互创建规则',
+        'describe':'查看规则详情', 'bind':'选择已有 CCI 并绑定（迁移会确认）',
+        'unbind':'解绑规则，保留公网端口', 'delete':'删除规则；已有绑定会先解绑'},
+        'DNAT 端口规则管理；列表默认汇总所有可访问 EIP 下本人创建的规则。',
+        '示例：uv run main.py --text dnat bind --name rule-name --eip eip-name')
+    parser.add_argument('--eip', help='限定 EIP 名称；创建省略时交互选择，列表省略时汇总全部')
+    parser.add_argument('--plain', action='store_true', help='仅 list：打印规则列表后退出')
+    parser.add_argument('--name', help='规则完整名称；创建时作为新名称，其他操作省略则交互选择')
+    parser.add_argument('--yes', action='store_true', help='仅 create/delete/unbind：跳过确认；创建仍需填写端口')
     options = parser.parse_args(args)
+    if options.yes and options.action not in ('create','delete','unbind'):
+        parser.error('--yes 仅适用于 create/delete/unbind')
+    if options.plain and options.action != 'list':
+        parser.error('--plain 仅适用于 list')
+    if options.name and options.action == 'list':
+        parser.error('--name 用于指定单条规则；查看详情请使用 describe')
     config = cli.load_config()
     try:
         action = options.action
         if action == 'list':
             list_page(config, options.eip, options.plain)
             return 0
-        if action == 'delete':
+        if action in ('delete','describe','bind','unbind'):
             entries = all_my_rules(config, options.eip)
             if options.name:
                 matches = [entry for entry in entries if entry[1]['name'] == options.name]
@@ -379,8 +387,16 @@ def main(args):
                     raise cli.ConfigError('规则不存在或名称不唯一，请从列表中选择。')
                 api, row = matches[0]
             else:
-                api, row = choose('选择待删除规则', entries, lambda item: label(item[1]))
-            remove_rule(api, row, confirmed=options.yes)
+                api, row = choose('选择目标规则', entries, lambda item: label(item[1]))
+            if action == 'delete':
+                remove_rule(api, row, confirmed=options.yes)
+            elif action == 'describe':
+                show_rule(api, row)
+            elif action == 'bind':
+                bind_existing_cci(config, api, row)
+            elif options.yes or ui.confirm('确认解绑此规则（原目标将失去此入口）', '解绑'):
+                unbind_rule(api, row)
+                print('解绑已验证：' + row['name'])
             return 0
         eips = Client(config).resources('network.eip.v1.eip')
         if options.eip:
@@ -391,7 +407,7 @@ def main(args):
         else:
             eip = choose('EIP', eips, lambda x: f"{x['name']} · {x.get('display_name')} · {x.get('zone')}")
         api = Api(config, eip)
-        name = ask('规则名称', 'slai-dnat-' + uuid.uuid4().hex[:12])
+        name = options.name or ask('规则名称', 'slai-dnat-' + uuid.uuid4().hex[:12])
         body = new_rule(api, name)
         path = plans.save('dnat', body['name'], body)
         print(label(body))

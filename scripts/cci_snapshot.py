@@ -68,13 +68,13 @@ def label(row):
     return f"{status} · {image} · {row.get('ccr_namespace', '')}"
 
 
-def list_page(config, workspace, app):
+def list_page(config, workspace, app, plain=False):
     def selected(row):
         if row.get('state') == 'SUCCESS' and row.get('uri'):
             ui.show_text('镜像地址', row['uri'], hint='可在创建 CCI / ACP 时使用此地址。')
         else:
             ui.show_text('镜像保存状态', label(row), hint=str(row.get('reason') or '刷新列表查看最新状态。'))
-    return ui.browse('镜像快照 · ' + app['name'], lambda: snapshots(config, workspace, app), label, selected)
+    return ui.browse('镜像快照 · ' + app['name'], lambda: snapshots(config, workspace, app), label, selected, plain=plain)
 
 
 def create_interactive(config, workspace, app):

@@ -46,7 +46,7 @@ uv run main.py
 
 CCI、ACP 的“复制”会打开配置表，回填源镜像、命令、资源和挂载，可微调后提交或仅保存。未编辑的模板字段保留；CCI 原有 DNAT 不会自动迁移，可在表中另行配置。
 
-支持 Windows、macOS 和 Linux。完整安装说明见 [运行环境](docs/INSTALLATION.md)。
+支持 Windows、macOS 和 Linux。完整安装说明见 [运行环境](docs/INSTALLATION.md)，子命令、参数及示例见 [命令行使用](docs/CLI.md)。
 
 ## 界面操作
 
