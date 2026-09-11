@@ -78,9 +78,10 @@ class WindowsProxyIntegration(unittest.TestCase):
                         channel.sendall(b'windows-proxy-ok\n')
                         channel.send_exit_status(0)
                         channel.shutdown_write()
-                        # Give the client time to consume EOF and close its session.
-                        for _ in range(100):
-                            if channel.closed:
+                        channel.close()
+                        # Keep transport alive until the client sends its disconnect.
+                        for _ in range(200):
+                            if not transport.is_active():
                                 break
                             threading.Event().wait(.05)
                 except Exception as error:
@@ -132,7 +133,7 @@ class WindowsProxyIntegration(unittest.TestCase):
             result = subprocess.run(['pwsh', '-NoProfile', '-NonInteractive', '-Command', command], capture_output=True, timeout=45)
             for thread in threads:
                 thread.join(timeout=6)
-            self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+            self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace') + repr((result.stdout, seen, errors)))
             self.assertEqual(result.stdout.decode('utf-8').strip(), 'windows-proxy-ok')
             self.assertEqual(seen, [b'integration-command'])
             self.assertFalse(errors, errors)
