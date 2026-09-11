@@ -115,7 +115,8 @@ def show_connection(config, host, port, name):
     reachable = report(config, host, port)
     from scripts import ui
     if ui.active():
-        ui.show_text('SSH 连接命令', command, hint=('SSH 入口可达，尚未验证公钥登录。' if reachable else '连接检测未通过，请先按提示处理。') + '终端可直接执行。VS Code：先选择 Remote-SSH: Add New SSH Host… 添加此命令，再用 Connect to Host… 选择保存的主机。')
+        shell_hint = '此命令请在 PowerShell 7.3+ 中执行。' if sys.platform == 'win32' else ''
+        ui.show_text('SSH 连接命令', command, hint=shell_hint + ('SSH 入口可达，尚未验证公钥登录。' if reachable else '连接检测未通过，请先按提示处理。') + '终端可直接执行。VS Code：先选择 Remote-SSH: Add New SSH Host… 添加此命令，再用 Connect to Host… 选择保存的主机。')
         return
     if sys.platform == 'win32':
         print('\nSSH 连接命令（PowerShell 7.3+ 复制执行）：\n' + command)

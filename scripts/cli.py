@@ -19,13 +19,32 @@ def print(*args, **kwargs):
 
 
 class ConfigError(Exception):
-    pass
+    def __init__(self, message, *, title=None):
+        super().__init__(message)
+        self.title = title
+
+
+def configure_stdio():
+    # Windows console streams are usually UTF-8, redirected streams may be cp1252.
+    if sys.platform == 'win32':
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, 'reconfigure') and getattr(stream, 'encoding', '').lower().replace('-', '') != 'utf8':
+                stream.reconfigure(encoding='utf-8')
+
+
+configure_stdio()
+
+
+def config_text(path):
+    try:
+        return path.read_text(encoding='utf-8-sig')
+    except UnicodeError:
+        raise ConfigError('config.toml 必须保存为 UTF-8 编码；请在编辑器中转换编码后重试。', title='配置文件编码错误') from None
 
 
 def load_config(for_setup=False):
     try:
-        with CONFIG.open('rb') as stream:
-            config = tomllib.load(stream)
+        config = tomllib.loads(config_text(CONFIG))
     except FileNotFoundError:
         if not for_setup:
             raise ConfigError('缺少 config.toml，请先选择“配置账户”，或复制 config.example.toml。') from None
@@ -53,7 +72,7 @@ def string_value(table, key, required=False):
 
 def save_config_updates(section, updates, original):
     try:
-        text = CONFIG.read_text(encoding='utf-8') if CONFIG.exists() else (ROOT / 'config.example.toml').read_text(encoding='utf-8')
+        text = config_text(CONFIG) if CONFIG.exists() else (ROOT / 'config.example.toml').read_text(encoding='utf-8')
         document = tomlkit.parse(text)
     except tomlkit.exceptions.ParseError:
         raise ConfigError('config.toml 语法错误，未保存输入。') from None
@@ -106,9 +125,17 @@ def configure_account(config):
             raise ConfigError('当前终端无法隐藏密钥输入，请在交互终端重试或填写 config.toml。') from None
     if not updates['access_key_secret']:
         raise ConfigError('AccessKey Secret 不能为空。')
-    identity = rest.get_json({**config,'account':updates},'https://iam.sensecoreapi.cn/iam/idp/v1/me',timeout=20)
-    rest.identity_id(identity)
-    save_config_updates('account',updates,settings)
+    try:
+        identity = rest.get_json({**config,'account':updates},'https://iam.sensecoreapi.cn/iam/idp/v1/me',timeout=20)
+        rest.identity_id(identity)
+    except (ConfigError, OSError) as error:
+        reason = str(error) if isinstance(error, ConfigError) else '请检查网络连接。'
+        raise ConfigError('账户验证未通过，配置未保存。' + reason, title='账户验证失败') from None
+    try:
+        save_config_updates('account',updates,settings)
+    except (ConfigError, OSError) as error:
+        reason = str(error) if isinstance(error, ConfigError) else '请检查项目目录的写入权限，以及文件是否被占用。'
+        raise ConfigError('账户验证通过，但配置未保存。' + reason, title='账户配置保存失败') from None
     print('账户已验证并保存：' + str(identity.get('username') or identity['id']))
 
 
@@ -130,6 +157,9 @@ def guarded(operation):
         print('已取消操作。')
         return 0
     except (ConfigError, OSError) as error:
+        from scripts import ui
+        if ui.active():
+            raise
         print(str(error) if isinstance(error, ConfigError) else
               '无法读取配置或执行命令，请检查路径、权限和依赖。', file=sys.stderr)
         return 1

@@ -294,7 +294,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
         app = SlaiApp()
         def service(name, args):
             return ui.browse('我的资源', lambda: ['example'], str, lambda row: None)
-        with patch.object(cli, 'run_service', side_effect=service):
+        with patch('scripts.onboarding.state', return_value=('ready', 'test')), patch.object(cli, 'run_service', side_effect=service):
             async with app.run_test() as pilot:
                 await pilot.press('4')
                 await self.settle(pilot, lambda: isinstance(app.screen, Browser) and app.screen.page is not None)

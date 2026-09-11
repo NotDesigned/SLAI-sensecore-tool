@@ -18,7 +18,7 @@ class UsabilityTests(unittest.TestCase):
         create.assert_called_once_with({}, workspace_name='other', reuse_last=False)
 
     def test_service_failure_and_cancel_return_to_main_menu(self):
-        with patch('scripts.proxy_settings.status',return_value='SOCKS5：测试状态'), patch.object(cli, 'menu_title', return_value='SLAI-tool'), \
+        with patch('scripts.onboarding.state',return_value=('ready','test')), patch('scripts.proxy_settings.status',return_value='SOCKS5：测试状态'), patch.object(cli, 'menu_title', return_value='SLAI-tool'), \
              patch.object(acp, 'main', side_effect=[cli.ConfigError('网络失败'), ui.Cancelled]), \
              patch('builtins.input', side_effect=['4', '4', '0']), \
              contextlib.redirect_stdout(io.StringIO()) as output, \

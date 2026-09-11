@@ -18,6 +18,7 @@ def output(*values, sep=' ', end='\n', **kwargs):
     if active():
         backend().output(sep.join(str(v) for v in values) + end)
     else:
+        cli.configure_stdio()
         builtins.print(*values, sep=sep, end=end, **kwargs)
 
 

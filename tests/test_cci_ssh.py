@@ -2,6 +2,7 @@ import contextlib
 import io
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -17,6 +18,7 @@ class SshTests(unittest.TestCase):
         with self.assertRaises(cli.ConfigError):
             cci_ssh.enabled({'ssh_enabled': 'false'})
 
+    @unittest.skipIf(sys.platform == 'win32', 'Bootstrap executes inside Linux containers')
     def test_bootstrap_shell_syntax_and_public_key_only_config(self):
         for command in ('', 'sleep infinity', 'echo "custom"; sleep infinity'):
             script = cci_ssh.startup('ssh-ed25519 AAAA comment', command)
@@ -30,6 +32,7 @@ class SshTests(unittest.TestCase):
             else:
                 self.assertIn('exec /bin/sh -c', script)
 
+    @unittest.skipIf(sys.platform == 'win32', 'Bootstrap executes inside Linux containers')
     def test_snapshot_host_key_changes_only_for_new_instance(self):
         with tempfile.TemporaryDirectory() as directory:
             script = cci_ssh.startup('ssh-ed25519 AAAA')

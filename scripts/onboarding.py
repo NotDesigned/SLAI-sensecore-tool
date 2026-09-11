@@ -50,5 +50,13 @@ def start():
     kind, _ = state()
     if kind == 'workspace':
         ui.output('首次使用 2/2 · 正在读取可访问工作空间；没有选项时请联系 SLAI 管理员授权。')
-        cli.configure_workspace(cli.load_config())
+        try:
+            cli.configure_workspace(cli.load_config())
+        except ui.Cancelled:
+            raise cli.ConfigError('账户已验证并保存。可稍后通过顶部“工作空间”按钮继续配置，无需重新输入密钥。',
+                                  title='账户已保存，工作空间未配置') from None
+        except (cli.ConfigError, OSError) as error:
+            reason = str(error) if isinstance(error, cli.ConfigError) else '请检查网络连接。'
+            raise cli.ConfigError('账户已验证并保存，工作空间配置未完成。' + reason + '\n可通过顶部“工作空间”按钮重试。',
+                                  title='账户已保存，工作空间未完成') from None
     ui.output('设置完成。交互调试选 CCI，长任务选 ACP；进入列表后点击“创建”。')

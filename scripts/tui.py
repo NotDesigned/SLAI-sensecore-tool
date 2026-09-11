@@ -268,6 +268,7 @@ class Operation(BackScreen):
         super().__init__()
         self.title_text, self.callback, self.done = title, callback, False
         self.auto_close = auto_close
+        self.failure_title = '操作未完成'
 
     def compose(self) -> ComposeResult:
         yield Static(literal(self.title_text), classes='heading')
@@ -290,7 +291,7 @@ class Operation(BackScreen):
         if self.auto_close and not error:
             self.dismiss(None)
             return
-        self.query_one('#status', Static).update('操作未完成' if error else '已结束')
+        self.query_one('#status', Static).update(self.failure_title if error else '已结束')
         if error:
             self.write(error)
         self.query_one('#back', Button).disabled = False
@@ -689,10 +690,12 @@ class SlaiApp(App):
                 if result:
                     error = '参数无效，请使用服务名后加 --help 查看用法。'
             except (cli.ConfigError, OSError) as exc:
+                if isinstance(owner, Operation) and isinstance(exc, cli.ConfigError) and exc.title:
+                    owner.failure_title = exc.title
                 error = str(exc) if isinstance(exc, cli.ConfigError) else '无法读取配置或执行命令，请检查网络、路径和权限。'
-            except Exception:
+            except Exception as exc:
                 # Do not leak credential-bearing provider responses or command arguments.
-                error = '操作未完成，请检查配置并重试。'
+                error = f'程序异常（{type(exc).__name__}），请记录异常类型并反馈；未显示可能含密钥的异常内容。'
             finally:
                 ui._backend.reset(token)
             if self.is_running:
