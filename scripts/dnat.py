@@ -351,8 +351,9 @@ def list_page(config, eip_name=None, plain=False):
                 print('解绑已验证：' + row['name'])
         elif action == '查看详情':
             show_rule(api, row)
+    from scripts.listing import resource_key
     return ui.browse('我的 DNAT', lambda: all_my_rules(config, eip_name),
-                     lambda entry: label(entry[1]), selected, plain=plain, actions=(
+                     lambda entry: label(entry[1]), selected, plain=plain, cache_key=resource_key('dnat',config,eip_name), actions=(
                          ('create','创建 DNAT',lambda: main(['create'] + (['--eip',eip_name] if eip_name else []))),))
 
 
@@ -418,5 +419,7 @@ def main(args):
         print('创建已验证：' + label(create_rule(api, body)))
         return 0
     except Cancelled:
+        if ui.active():
+            raise
         print('已取消 DNAT 操作。')
         return 0

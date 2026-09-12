@@ -1,6 +1,7 @@
 """CCR service menu and accessible repository listing through REST."""
 from scripts.ui import output as print
 import re
+import threading
 import urllib.parse
 
 from scripts import cli, rest, ui
@@ -66,9 +67,14 @@ def image_references(row):
 
 
 class RepositorySource(LocalSource):
+    background_capable = True
     def __init__(self, config, namespace, *, images=False):
         self.config, self.namespace, self.images = config, namespace, images
         self.force_refresh = False
+        self.background = False
+        self.background_token = None
+        self.loaded_stamp = None
+        self.pending = False
         self.status_hint = ''
         super().__init__(self.read,
             str if images else lambda row: ' '.join(image_references(row)),
@@ -87,6 +93,9 @@ class RepositorySource(LocalSource):
         rows, timestamp, cached = ccr_cache.load(self.config,self.namespace,
             lambda: repositories(self.config,self.namespace),refresh=self.force_refresh)
         self.status_hint = ('本地缓存' if cached else '云端已更新') + ' · ' + datetime.fromtimestamp(timestamp).strftime('%m-%d %H:%M:%S')
+        return self.convert(rows)
+
+    def convert(self, rows):
         if not self.images:
             return rows
         refs=[]
@@ -98,7 +107,41 @@ class RepositorySource(LocalSource):
                 refs.extend(values)
         return sorted(set(refs))
 
+    def enable_background(self):
+        from scripts.ccr_cache import account_key
+        self.background = account_key(self.config) is not None
+
+    def poll_background(self, force=False):
+        if not self.background:
+            return self.background_token
+        from scripts import ccr_cache
+        snapshot = ccr_cache.peek(self.config, self.namespace)
+        previous_state = ccr_cache.background_state(self.config,self.namespace)
+        if force or snapshot is None or not snapshot[2] or previous_state[1]:
+            ccr_cache.refresh_background(self.config,self.namespace,
+                lambda: repositories(self.config,self.namespace),force=force)
+        state = ccr_cache.background_state(self.config,self.namespace)
+        return (snapshot[3] if snapshot else None, state)
+
     def page(self, index, size, query='', state='', refresh=False):
+        if self.background:
+            from datetime import datetime
+            from scripts import ccr_cache
+            self.poll_background(force=refresh)
+            snapshot = ccr_cache.peek(self.config,self.namespace)
+            active, error = ccr_cache.background_state(self.config,self.namespace)
+            if snapshot is not None and snapshot[3] != self.loaded_stamp:
+                self.snapshot = self.convert(snapshot[0])
+                self.loaded_stamp = snapshot[3]
+            self.pending = active or (snapshot is None and not error)
+            self.background_error = bool(error)
+            self.status_hint = error or ('后台更新中' if active else '等待后台查询' if snapshot is None else '本地缓存')
+            if snapshot is not None:
+                self.status_hint += ' · ' + ('已过期 · ' if not snapshot[2] else '') + datetime.fromtimestamp(snapshot[1]).strftime('%m-%d %H:%M:%S')
+            self.background_token = (snapshot[3] if snapshot else None, (active,error))
+            if self.snapshot is None:
+                self.snapshot = []
+            return super().page(index,size,query,state,False)
         self.force_refresh = refresh
         try:
             return super().page(index,size,query,state,refresh)
@@ -174,5 +217,44 @@ def main(args):
         try:
             list_images(config, options.namespace, plain=options.plain)
         except Cancelled:
+            if ui.active():
+                raise
             print('已取消查询。')
     return 0
+
+
+_prefetch_lock = threading.Lock()
+_prefetch_times = {}
+
+
+def prefetch_default(config, image=''):
+    """Only warm the selected/default namespace, never scan every repository."""
+    from scripts import ccr_cache
+    import time
+    account = ccr_cache.account_key(config)
+    docker = config.get('docker',{})
+    preferred = docker.get('namespace','')
+    registry = docker.get('registry','registry.cn-sh-01.sensecore.cn')
+    match = re.match(r'(registry\.cn-[a-z]+-\d+\.sensecore\.cn)/([^/]+)/',image)
+    if match:
+        registry, preferred = match.groups()
+    if not account or not preferred:
+        return
+    key = (account,registry,preferred)
+    with _prefetch_lock:
+        if time.monotonic()-_prefetch_times.get(key,-300) < 300:
+            return
+        if len(_prefetch_times)>=32:
+            _prefetch_times.pop(next(iter(_prefetch_times)))
+        _prefetch_times[key]=time.monotonic()
+    def run():
+        try:
+            namespace = next((n for n in namespaces(config) if n['name']==preferred
+                and n.get('state')=='ACTIVE' and registry=='registry.'+n.get('region','')+'.sensecore.cn'),None)
+            if namespace is not None:
+                snapshot=ccr_cache.peek(config,namespace)
+                if snapshot is None or not snapshot[2]:
+                    ccr_cache.refresh_background(config,namespace,lambda:repositories(config,namespace))
+        except Exception:
+            pass  # Opening the image browser reports failures and offers retry.
+    threading.Thread(target=run,name='ccr-prefetch',daemon=True).start()

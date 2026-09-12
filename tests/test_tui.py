@@ -287,7 +287,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             await self.settle(pilot, lambda: isinstance(app.screen, Picker))
             self.assertIn('test-resource', app.screen.query_one(TextArea).text)
             await pilot.press('enter')
-            await self.settle(pilot, lambda: isinstance(app.screen, Operation) and app.screen.done)
+            await self.settle(pilot, lambda: len(app.screen_stack) == 1)
             performed.assert_not_called()
 
     async def test_service_list_returns_without_extra_result_page(self):

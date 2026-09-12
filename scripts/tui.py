@@ -117,6 +117,8 @@ class Bridge:
         context = self.history if isinstance(default, str) and default in ('取消', '仅保存配置', '提交创建') else ''
         value = self.request(Picker(title, choices, describe, default, back, context))
         if value is None:
+            if isinstance(self.owner, Operation):
+                self.owner.cancelled = True
             if back is not None:
                 return back
             raise ui.Cancelled
@@ -135,10 +137,16 @@ class Bridge:
         return result
 
     def show_text(self, title, value, *, hint=""):
-        return self.request(Details(title, value, hint=hint))
+        result = self.request(Details(title, value, hint=hint))
+        if isinstance(self.owner, Operation):
+            self.owner.result_seen = True
+        return result
 
     def browse(self, title, source, operate, *, actions=()):
-        return self.request(Browser(title, source, operate, actions=actions))
+        result = self.request(Browser(title, source, operate, actions=actions))
+        if isinstance(self.owner, Operation):
+            self.owner.result_seen = True
+        return result
 
     def select_resource(self, title, source):
         value = self.request(Browser(title, source, None, select_mode=True))
@@ -147,7 +155,7 @@ class Bridge:
         return value
 
     def operation(self, title, callback):
-        return self.request(Operation(title, callback))
+        return self.request(Operation(title, callback, auto_close=True, keep_output=True))
 
     def form(self, draft):
         value = self.request(Form(draft))
@@ -312,10 +320,11 @@ class Details(BackScreen):
 
 
 class Operation(BackScreen):
-    def __init__(self, title, callback, auto_close=False):
+    def __init__(self, title, callback, auto_close=False, keep_output=False, notify_success=False):
         super().__init__()
         self.title_text, self.callback, self.done = title, callback, False
-        self.auto_close = auto_close
+        self.auto_close, self.keep_output, self.notify_success = auto_close, keep_output, notify_success
+        self.has_output = self.result_seen = self.cancelled = False
         self.failure_title = '操作未完成'
         self.changed = False
 
@@ -330,14 +339,20 @@ class Operation(BackScreen):
         self.app.task(self, self.callback, self.finished, self.write)
 
     def write(self, value):
+        self.has_output |= bool(value.strip())
         if self.is_mounted:
             self.query_one(RichLog).write(literal(value.rstrip('\n')))
 
     def finished(self, result, error):
-        if isinstance(result, int) and result != 0 and not error:
+        if type(result) is int and result != 0 and not error:
             error = '操作未完成，请查看输出信息。'
         self.done = True
-        if self.auto_close and not error:
+        if self.cancelled and not self.changed:
+            self.dismiss(False)
+            return
+        if self.auto_close and not error and (not self.keep_output or not self.has_output or self.result_seen or self.changed):
+            if self.changed or self.notify_success:
+                self.notify(self.title_text + '已完成')
             self.dismiss(self.changed)
             return
         self.query_one('#status', Static).update(self.failure_title if error else '已结束')
@@ -370,6 +385,7 @@ class Browser(BackScreen):
         self.selection = None
         self.displayed_index = 0
         self.pending_refresh = False
+        self.applied_query, self.applied_state = '', ''
         self.select_mode = select_mode
         self.actions = actions
 
@@ -395,9 +411,21 @@ class Browser(BackScreen):
     def on_mount(self):
         self.query_one(DataTable).add_columns(*self.source.columns)
         self.query_one(DataTable).focus()
+        if getattr(type(self.source),'background_capable',False):
+            self.source.enable_background()
+            self.set_interval(.5,self.poll_source)
         self.load()
 
-    def load(self, refresh=False):
+    def poll_source(self):
+        if self.fetching or self.app.screen is not self:
+            return
+        if self.source.poll_background() != self.source.background_token:
+            table = self.query_one(DataTable)
+            if self.page and self.page.rows and table.cursor_row < len(self.page.rows):
+                self.selection = row_identity(self.page.rows[table.cursor_row])
+            self.load(background=True)
+
+    def load(self, refresh=False, background=False):
         # Avoid accumulating network reads while one is in flight.
         if self.fetching:
             self.pending_refresh |= refresh
@@ -405,15 +433,19 @@ class Browser(BackScreen):
         self.fetching = True
         self.generation += 1
         generation = self.generation
-        query = self.query_one('#search', Input).value.strip()
-        state = self.query_one('#state', Select).value if self.source.states else ''
+        if background:
+            query, state = self.applied_query, self.applied_state
+        else:
+            query = self.query_one('#search', Input).value.strip()
+            state = self.query_one('#state', Select).value if self.source.states else ''
+            self.applied_query, self.applied_state = query, state
         self.query_one('#counter', Static).update(getattr(self.source, 'loading_hint', '加载中…') + ' · 可按 0 返回')
-        self.query_one(DataTable).disabled = True
+        self.query_one(DataTable).disabled = not background
         for button in self.query('.buttons Button'):
-            button.disabled = button.id != 'back' and not button.id.startswith('service-')
-        self.query_one('#search', Input).disabled = True
+            button.disabled = not background and button.id != 'back' and not button.id.startswith('service-')
+        self.query_one('#search', Input).disabled = not background
         if self.source.states:
-            self.query_one('#state', Select).disabled = True
+            self.query_one('#state', Select).disabled = not background
         def finished(page, error):
             if not self.is_mounted or generation != self.generation:
                 return
@@ -438,7 +470,18 @@ class Browser(BackScreen):
                     self.query_one('#next', Button).disabled = not self.page.more
                 self.query_one('#counter', Static).update(literal(error + (' · 保留上次结果 · ' + getattr(self.source,'status_hint','') if self.page else '') + ' · 刷新重试'))
                 return
-            if not page.rows and self.index > 0:
+            if (not page.rows and page.total is None and self.page is not None
+                    and (self.page.rows or self.page.total is not None)
+                    and (getattr(self.source,'pending',False) or getattr(self.source,'background_error',False))):
+                failed = getattr(self.source,'background_error',False)
+                if failed:
+                    self.index = self.displayed_index
+                table.disabled = not failed
+                self.query_one('#counter', Static).update(literal(self.source.status_hint + ' · 保留上次结果'))
+                self.query_one('#previous', Button).disabled = self.index == 0
+                self.query_one('#next', Button).disabled = not self.page.more
+                return
+            if not page.rows and self.index > 0 and not getattr(self.source,'pending',False) and not getattr(self.source,'background_error',False):
                 self.index = max(0, (page.total - 1) // self.page_size) if page.total is not None else 0
                 self.load()
                 return
@@ -455,9 +498,13 @@ class Browser(BackScreen):
             self.query_one('#previous', Button).disabled = self.index == 0
             self.query_one('#next', Button).disabled = not page.more
             if not page.rows:
-                message = '没有符合筛选条件的结果，可清空搜索或刷新。' if query or state not in ('', '全部') else ('暂无资源，可点击上方按钮创建或上传。' if self.actions else '暂无可选资源，请刷新或更换范围。')
+                if getattr(type(self.source),'background_capable',False) and (self.source.pending or getattr(self.source,'background_error',False)):
+                    message = self.source.status_hint
+                else:
+                    message = '没有符合筛选条件的结果，可清空搜索或刷新。' if query or state not in ('', '全部') else ('暂无资源，可点击上方按钮创建或上传。' if self.actions else '暂无可选资源，请刷新或更换范围。')
                 self.query_one('#counter', Static).update(message)
-            table.focus()
+            if not background and self.app.screen is self:
+                table.focus()
         self.app.task(self, lambda: self.source.page(self.index, self.page_size, query, state, refresh), finished)
 
     def render_rows(self):
@@ -538,7 +585,7 @@ class Browser(BackScreen):
             self.dismiss(row)
             return
         self.selection = row_identity(row)
-        self.app.push_screen(Operation('资源操作', lambda: self.operate(row)), lambda changed: self.load(refresh=True) if changed else None)
+        self.app.push_screen(Operation('资源操作', lambda: self.operate(row), auto_close=True, keep_output=True), lambda changed: self.load(refresh=True) if changed else None)
 
 
 class Form(BackScreen):
@@ -645,6 +692,8 @@ class SlaiApp(App):
         self.catalog_generation = 0
 
     def clear_catalog(self):
+        from scripts import listing
+        listing.invalidate()
         with self.catalog_lock:
             self.catalog.clear()
             self.catalog_generation += 1
@@ -669,13 +718,19 @@ class SlaiApp(App):
         self.query_one(OptionList).focus()
         self.refresh_identity()
         self.refresh_proxy()
+        if not self.is_headless:
+            try:
+                from scripts.ccr import prefetch_default
+                prefetch_default(cli.load_config())
+            except (cli.ConfigError,OSError):
+                pass
         from scripts import onboarding
         if onboarding.state()[0] in ('account', 'workspace'):
             self.query_one('#home-setup', Button).focus()
         if isinstance(self.initial, str):
             self.open_service(self.initial)
         elif self.initial:
-            self.open_operation('SLAI-tool', self.initial)
+            self.push_screen(Operation('SLAI-tool', self.initial, auto_close=True, keep_output=True), lambda _: self.refresh_identity())
 
     def refresh_identity(self):
         from scripts import onboarding
@@ -703,12 +758,12 @@ class SlaiApp(App):
     def open_service(self, name):
         from scripts import onboarding
         if onboarding.state()[0] == 'account':
-            self.open_operation('首次设置', onboarding.start)
+            self.open_operation('首次设置', onboarding.start, auto_close=True)
             return
         self.push_screen(Operation(name.upper(), lambda: cli.run_service(name, ['list']), auto_close=True))
 
-    def open_operation(self, title, callback):
-        self.push_screen(Operation(title, callback), lambda _: self.refresh_identity())
+    def open_operation(self, title, callback, *, auto_close=False):
+        self.push_screen(Operation(title, callback, auto_close=auto_close, notify_success=auto_close), lambda _: self.refresh_identity())
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected):
         if event.option_list.id != 'home':
@@ -730,11 +785,11 @@ class SlaiApp(App):
     def on_button_pressed(self, event: Button.Pressed):
         from scripts import onboarding
         if event.button.id == 'home-setup':
-            self.open_operation('首次设置', onboarding.start)
+            self.open_operation('首次设置', onboarding.start, auto_close=True)
         elif event.button.id == 'home-account':
-            self.open_operation('配置账户', lambda: cli.execute('configure'))
+            self.open_operation('配置账户', lambda: cli.execute('configure'), auto_close=True)
         elif event.button.id == 'home-workspace':
-            self.open_operation('选择工作空间', lambda: cli.execute('workspace'))
+            self.open_operation('选择工作空间', lambda: cli.execute('workspace'), auto_close=True)
         elif event.button.id == 'home-help':
             self.push_screen(Details('使用指南', onboarding.GUIDE))
         elif event.button.id == 'home-proxy-check':
@@ -760,7 +815,9 @@ class SlaiApp(App):
             try:
                 result = callback()
             except ui.Cancelled:
-                error = '已取消操作。'
+                if isinstance(owner, Operation):
+                    owner.cancelled = True
+                error = '操作已中断，已有请求可能已提交，请刷新列表确认。' if isinstance(owner, Operation) and owner.changed else '已取消操作。'
             except SystemExit as exc:
                 result = exc.code or 0
                 if result:

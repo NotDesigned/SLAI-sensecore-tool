@@ -207,7 +207,8 @@ def list_page(config, workspace, plain=False):
                 print('删除已验证：' + app['name'])
     actions = [('create','创建 CCI',lambda: cci.create(cli.load_config(), workspace_name=workspace['name']))]
     actions.append(('create-last','按照上次配置',lambda: cci.create(cli.load_config(), workspace_name=workspace['name'],reuse_last=True)))
-    return ui.browse('我的 CCI · ' + workspace['name'], lambda: my_apps(config, workspace), label, selected, plain=plain, actions=actions)
+    from scripts.listing import resource_key
+    return ui.browse('我的 CCI · ' + workspace['name'], lambda: my_apps(config, workspace), label, selected, plain=plain, actions=actions, cache_key=resource_key('cci',config,workspace))
 
 
 

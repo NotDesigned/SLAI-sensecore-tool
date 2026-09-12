@@ -203,11 +203,14 @@ def select_resource(title, source):
             return page.rows[int(value) - 1]
 
 
-def browse(title, fetch, describe, operate, *, plain=False, actions=()):
+def browse(title, fetch, describe, operate, *, plain=False, actions=(), cache_key=None):
     """Refresh on request or after an action; retain the page on invalid input."""
     if active() and not plain:
-        from scripts.listing import LocalSource
-        return backend().browse(title, LocalSource(fetch, describe), operate, actions=actions)
+        from scripts.listing import LocalSource, CachedSource
+        source = LocalSource(fetch, describe)
+        if cache_key is not None:
+            source = CachedSource(source, cache_key, ttl=30 if cache_key[0]=='dnat' else 15)
+        return backend().browse(title, source, operate, actions=actions)
     while True:
         try:
             rows = fetch()

@@ -99,4 +99,6 @@ def create(config, workspace_name=None, reuse_last=False):
                 p = network['body']['properties']
                 cci_ssh.show_connection(config, p['external_ip'], p['external_port'], name)
     except ui.Cancelled:
+        if ui.active():
+            raise
         print('已取消创建 CCI。')

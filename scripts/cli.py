@@ -154,6 +154,9 @@ def guarded(operation):
     try:
         return operation() or 0
     except Cancelled:
+        from scripts import ui
+        if ui.active():
+            raise
         print('已取消操作。')
         return 0
     except (ConfigError, OSError) as error:

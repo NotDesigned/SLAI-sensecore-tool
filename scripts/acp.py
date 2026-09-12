@@ -257,7 +257,9 @@ def list_page(client, workspace, name=None, plain=False):
     actions = [('create','创建 ACP',lambda: main(['create','--workspace',workspace]))]
     actions.append(('create-last','按照上次配置',lambda: main(['create-last','--workspace',workspace])))
     if ui.active() and not plain:
-        return ui.backend().browse('我的 ACP · ' + workspace, JobSource(client, workspace, name or ''), selected, actions=actions)
+        from scripts.listing import CachedSource, resource_key
+        source = CachedSource(JobSource(client, workspace, name or ''), resource_key('acp',client.config,client.workspace_record(workspace),name))
+        return ui.backend().browse('我的 ACP · ' + workspace, source, selected, actions=actions)
     return ui.browse('我的 ACP', lambda: client.jobs(workspace, name=name), label, selected, plain=plain, actions=actions)
 
 

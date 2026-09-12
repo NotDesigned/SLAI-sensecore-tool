@@ -51,6 +51,9 @@ class CopyDraft(CreateDraft):
                  nodes=nodes, mounts=copy.deepcopy(mounts), quota=d.get('scheduling',{}).get('quota_type','RESERVED'),
                  framework=d.get('framework','PYTORCH').lower(),
                  vpc=pool.get('vpc_id') or cloud.properties(cluster).get('vpc_id'))
+        if ui.active():
+            from scripts.ccr import prefetch_default
+            prefetch_default(self.client.config,v['image'])
         self.initial = copy.deepcopy(v)
         if getattr(self, 'mixed_specs', False):
             ui.output('源角色使用多个规格；修改规格或数量会统一为表中选中的规格，未修改时保留原分配。')

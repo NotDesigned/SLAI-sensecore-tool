@@ -46,6 +46,9 @@ class CreateDraft:
         return self.cache[kind]
 
     def initialize(self):
+        if ui.active():
+            from scripts.ccr import prefetch_default
+            prefetch_default(self.client.config,self.values['image'])
         ui.output('正在读取工作空间关联的资源池…')
         clusters = self.clusters()
         if self.previous is not None:
