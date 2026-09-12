@@ -163,7 +163,7 @@ def list_page(config, workspace, plain=False):
     entry_cache = {}
     def selected(app):
         choices = ['返回列表', *(['连接'] if app.get('state') == 'RUNNING' else []),
-                   *(['保存为镜像'] if app.get('state') == 'RUNNING' else []), '镜像快照',
+                   *(['保存为镜像'] if app.get('state') == 'RUNNING' else []), '已保存的镜像',
                    '启动' if app.get('state') == 'SUSPENDED' else '停止', '复制', '删除']
         action = ui.choose(label(app), choices, default='返回列表')
         if action == '连接':
@@ -186,7 +186,7 @@ def list_page(config, workspace, plain=False):
         elif action == '启动':
             start_app(config, workspace, app['name'], expected=app)
             print('启动请求已确认，请在列表刷新运行状态：' + app['name'])
-        elif action in ('保存为镜像', '镜像快照'):
+        elif action in ('保存为镜像', '已保存的镜像'):
             from scripts import cci_snapshot
             if action == '保存为镜像':
                 cci_snapshot.create_interactive(config, workspace, app)
@@ -218,7 +218,7 @@ def main(args):
         'create-last':'回填上次配置后编辑创建', 'describe':'打印实例详情', 'connect':'查找 DNAT 并显示 SSH 命令',
         'start':'启动已停止的 CCI', 'stop':'停止 CCI', 'copy':'回填源模板，在配置表编辑后创建',
         'delete':'删除 CCI 及仍归属它的端口 Service', 'snapshot':'将运行容器保存为镜像',
-        'snapshots':'列出镜像快照及状态'},
+        'snapshots':'列出已保存的镜像及保存状态'},
         'CCI 服务：通过 REST 管理本人实例。', '示例：uv run main.py --text cci copy --name my-cci')
     parser.add_argument('--workspace', help='工作空间名称；省略则使用默认项或交互选择')
     parser.add_argument('--name', help='目标 CCI 的完整名称；省略则交互选择（不用于创建命名）')

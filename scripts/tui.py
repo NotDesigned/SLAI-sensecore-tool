@@ -136,8 +136,8 @@ class Bridge:
             raise ui.Cancelled
         return result
 
-    def show_text(self, title, value, *, hint=""):
-        result = self.request(Details(title, value, hint=hint))
+    def show_text(self, title, value, *, hint="", copy_label="复制全部"):
+        result = self.request(Details(title, value, hint=hint, copy_label=copy_label))
         if isinstance(self.owner, Operation):
             self.owner.result_seen = True
         return result
@@ -289,9 +289,10 @@ class CommandEdit(BackScreen):
 
 
 class Details(BackScreen):
-    def __init__(self, title, value, *, hint=""):
+    def __init__(self, title, value, *, hint="", copy_label="复制全部"):
         super().__init__()
         self.title_text, self.value, self.hint = title, value, hint
+        self.copy_label = copy_label
 
     def compose(self) -> ComposeResult:
         yield Static(literal(self.title_text), classes='heading')
@@ -299,7 +300,8 @@ class Details(BackScreen):
             yield Static(literal(self.hint), classes='hint')
         yield TextArea(self.value, read_only=True, soft_wrap=True, id='text')
         with Horizontal(classes='buttons'):
-            yield Button('复制全部', id='copy')
+            if self.copy_label is not None:
+                yield Button(self.copy_label, id='copy')
             yield Button('保存文本', id='save-text')
             yield Button('0 返回', id='back')
         yield Footer()

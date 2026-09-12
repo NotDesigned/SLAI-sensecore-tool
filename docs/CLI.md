@@ -37,7 +37,7 @@ AccessKey、代理密码不作为命令行参数传入，按提示输入后保�
 | `copy --name NAME` | 回填源配置，微调后创建副本 |
 | `delete --name NAME [--yes]` | 删除实例及仍归属它的端口 Service，不删除 DNAT |
 | `snapshot --name NAME` | 保存为镜像，交互选择命名空间、名称并确认 |
-| `snapshots --name NAME [--plain]` | 镜像快照记录；交互模式可查看镜像地址 |
+| `snapshots --name NAME [--plain]` | 镜像保存记录；交互模式可查看镜像地址 |
 
 目标操作省略 `--name` 时从本人实例列表选择。停止前请把需要保留的数据写入挂载目录或保存为镜像。
 

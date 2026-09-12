@@ -53,7 +53,7 @@ def create(config, workspace, app, instance, container, namespace, name):
         raise cli.ConfigError('目标命名空间不可用，请重新选择。')
     if any(row.get('name') == name and row.get('ccr_namespace') == namespace
            for row in snapshots(config, workspace, app)):
-        raise cli.ConfigError('此应用已有同名镜像快照，请查看现有记录或使用新名称，避免重复提交。')
+        raise cli.ConfigError('此应用已有同名镜像保存记录，请查看现有记录或使用新名称，避免重复提交。')
     url = cci_api.resource_url(workspace, app['name']) + '/snapshots?client_type=0'
     return rest.request_json(config, url, method='POST', body={
         'name': name, 'display_name': name, 'ccr_namespace': namespace,
@@ -70,11 +70,25 @@ def label(row):
 
 def list_page(config, workspace, app, plain=False):
     def selected(row):
-        if row.get('state') == 'SUCCESS' and row.get('uri'):
-            ui.show_text('镜像地址', row['uri'], hint='可在创建 CCI / ACP 时使用此地址。')
+        # A saved list may still say CREATING after the upload has finished.
+        matches = [item for item in snapshots(config, workspace, app)
+                   if item.get('name') == row.get('name')
+                   and item.get('ccr_namespace') == row.get('ccr_namespace')
+                   and (not row.get('uid') or item.get('uid') == row['uid'])
+                   and (not row.get('image_tag') or item.get('image_tag') == row['image_tag'])]
+        if len(matches) != 1:
+            raise cli.ConfigError('镜像保存记录已不可用或不唯一，请刷新列表后重试。')
+        current = matches[0]
+        uri = current.get('uri')
+        if isinstance(uri, str) and uri.strip() and not any(c.isspace() for c in uri.strip()):
+            status = STATES.get(current.get('state'), '状态未知')
+            hint = '可在创建 CCI / ACP 时使用此地址。' if current.get('state') == 'SUCCESS' else f'当前状态：{status}。这是平台返回的目标地址，镜像尚未确认可用。'
+            ui.show_text('快照地址', uri.strip(), hint=hint, copy_label='复制快照地址')
         else:
-            ui.show_text('镜像保存状态', label(row), hint=str(row.get('reason') or '刷新列表查看最新状态。'))
-    return ui.browse('镜像快照 · ' + app['name'], lambda: snapshots(config, workspace, app), label, selected, plain=plain)
+            ui.show_text('镜像保存状态', label(current),
+                         hint=str(current.get('reason') or '地址尚未生成，请稍后刷新列表。'),
+                         copy_label=None)
+    return ui.browse('已保存的镜像 · ' + app['name'], lambda: snapshots(config, workspace, app), label, selected, plain=plain)
 
 
 def create_interactive(config, workspace, app):
@@ -90,5 +104,5 @@ def create_interactive(config, workspace, app):
                       '镜像可能包含容器内的密钥和配置，请先清理不应保存的内容；挂载存储请另行备份。', '保存为镜像'):
         return
     create(config, workspace, app, instance, container, namespace, name)
-    ui.output('快照已提交，版本标签由平台生成。可在“镜像快照”中刷新状态并复制镜像地址。')
+    ui.output('镜像保存请求已提交，版本标签由平台生成。可在“已保存的镜像”中刷新状态并复制镜像地址。')
     list_page(config, workspace, app)

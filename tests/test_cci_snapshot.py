@@ -55,3 +55,38 @@ class SnapshotTests(unittest.TestCase):
         row = dict(name='image', state='CREATING', reason='PUSHPENDING: WorkerPodCreated')
         self.assertIn('等待上传', s.label(row))
         self.assertIn('保存失败', s.label({**row, 'state': 'FAIL'}))
+
+    def test_selection_refreshes_record_and_copies_only_uri_even_if_failed(self):
+        old=dict(name='record',state='CREATING',image_tag='v1',ccr_namespace='ns')
+        current=dict(old,state='FAIL',uri='registry.example/ns/image:v1')
+        with patch.object(s,'snapshots',return_value=[current]),              patch.object(s.ui,'browse',side_effect=lambda title,fetch,describe,selected,**kw:selected(old)),              patch.object(s.ui,'show_text') as show:
+            s.list_page({},self.w,self.app)
+        self.assertEqual(show.call_args.args,('快照地址','registry.example/ns/image:v1'))
+        self.assertEqual(show.call_args.kwargs['copy_label'],'复制快照地址')
+        self.assertIn('保存失败',show.call_args.kwargs['hint'])
+
+    def test_missing_uri_has_no_copy_button(self):
+        row=dict(name='record',state='CREATING',ccr_namespace='ns')
+        with patch.object(s,'snapshots',return_value=[row]),              patch.object(s.ui,'browse',side_effect=lambda title,fetch,describe,selected,**kw:selected(row)),              patch.object(s.ui,'show_text') as show:
+            s.list_page({},self.w,self.app)
+        self.assertIsNone(show.call_args.kwargs['copy_label'])
+
+
+class SnapshotClipboardUiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_snapshot_button_copies_uri_instead_of_status(self):
+        from scripts import clipboard
+        from scripts.tui import SlaiApp,Details
+        from textual.widgets import Button
+        uri='registry.example/ns/image:v1'
+        with patch('scripts.cli.menu_title',return_value='test'),patch('scripts.proxy_settings.status',return_value='test'),patch.object(clipboard,'copy_text') as copy:
+            app=SlaiApp()
+            async with app.run_test() as pilot:
+                await app.push_screen(Details('快照地址',uri,hint='当前状态：保存中',copy_label='复制快照地址'))
+                await pilot.pause(.1)
+                self.assertEqual(str(app.screen.query_one('#copy',Button).label),'复制快照地址')
+                await pilot.click('#copy')
+                for _ in range(100):
+                    await pilot.pause(.025)
+                    if copy.called:
+                        break
+                copy.assert_called_once_with(uri)

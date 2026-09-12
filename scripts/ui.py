@@ -45,9 +45,9 @@ def output(*values, sep=' ', end='\n', **kwargs):
         builtins.print(*values, sep=sep, end=end, **kwargs)
 
 
-def show_text(title, value, *, hint=""):
+def show_text(title, value, *, hint="", copy_label="复制全部"):
     if active():
-        return backend().show_text(title, value, hint=hint)
+        return backend().show_text(title, value, hint=hint, copy_label=copy_label)
     output(title + '\n' + value)
     if hint:
         output(hint)
