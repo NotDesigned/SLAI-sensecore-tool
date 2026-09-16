@@ -81,6 +81,11 @@ class CreationTests(unittest.TestCase):
             c.create.assert_not_called()
 
 class PickerTableTests(unittest.TestCase):
+    def counts(self, pool):
+        """Read the card columns by header, so a new column cannot silently shift the assertion."""
+        cells=dict(zip(cloud.POOL_COLUMNS,cloud.pool_cells(pool)))
+        return (cells['\u5269\u4f59\u5361\u6570'],cells['\u95f2\u65f6\u989d\u5ea6'])
+
     def picker(self, draft, key):
         captured={}
         def choose(label,rows,describe,default=None,header=''):
@@ -95,10 +100,11 @@ class PickerTableTests(unittest.TestCase):
             shown=self.picker(draft,'cluster')
             self.assertEqual(shown['label'],'\u8d44\u6e90\u6c60')
             self.assertEqual(shown['header'],
-                '\u540d\u79f0                                           \u53ef\u7528\u533a     \u5269\u4f59\u5361\u6570  \u95f2\u65f6\u989d\u5ea6')
+                '\u540d\u79f0                   \u6807\u8bc6                   \u53ef\u7528\u533a     \u5269\u4f59\u5361\u6570  \u95f2\u65f6\u989d\u5ea6')
+            # Alias and submitted name get their own columns instead of one parenthesised cell.
             self.assertEqual(shown['lines'],
-                ['computing_cluster_01e (computing-cluster-01e)  cn-sh-01e        69         6',
-                 'debug_mig_cluster_01e (debug-mig-cluster-01e)  cn-sh-01e         -         2'])
+                ['computing_cluster_01e  computing-cluster-01e  cn-sh-01e        69         6',
+                 'debug_mig_cluster_01e  debug-mig-cluster-01e  cn-sh-01e         -         2'])
 
     def test_copy_keeps_the_source_pool_selected_and_blocks_multi_role_edits(self):
         c=client();c.clusters.return_value=copy.deepcopy(POOLS);c.specs.return_value=copy.deepcopy(SPECS)
@@ -134,28 +140,63 @@ class PickerTableTests(unittest.TestCase):
     def test_unusable_counts_read_as_unknown_and_zero_is_still_reported(self):
         base=dict(name='pool',zone='cn-sh-01e')
         # Negative control: nothing known must read as unknown, never as zero.
-        self.assertEqual(cloud.pool_cells(base)[2:],('-','-'))
+        self.assertEqual(self.counts(base),('-','-'))
         for bad in ('n/a','','-3','nan','inf','1e400'):
-            self.assertEqual(cloud.pool_cells({**base,'reserved_number':bad})[2:],('-','-'),bad)
-        self.assertEqual(cloud.pool_cells({**base,'reserved_number':'0','spot_status':[]})[2:],('0','-'))
+            self.assertEqual(self.counts({**base,'reserved_number':bad}),('-','-'),bad)
+        self.assertEqual(self.counts({**base,'reserved_number':'0','spot_status':[]}),('0','-'))
         # Fractions are reported, not truncated into a tidier-looking integer.
-        self.assertEqual(cloud.pool_cells({**base,'reserved_number':'6.9'})[2],'6.90')
-        self.assertEqual(cloud.pool_cells({**base,'reserved_number':'69.00'})[2],'69')
+        self.assertEqual(self.counts({**base,'reserved_number':'6.9'})[0],'6.90')
+        self.assertEqual(self.counts({**base,'reserved_number':'69.00'})[0],'69')
 
     def test_unreadable_spot_shares_make_the_total_unknown_instead_of_understating_it(self):
         base=dict(name='pool',zone='cn-sh-01e',reserved_number='69')
-        self.assertEqual(cloud.pool_cells({**base,'spot_status':[{'spot_quota':{'device':'4'}},
-                                                                 {'spot_quota':{'device':'2'}}]})[3],'6')
+        self.assertEqual(self.counts({**base,'spot_status':[{'spot_quota':{'device':'4'}},
+                                                            {'spot_quota':{'device':'2'}}]})[1],'6')
         for broken in ([{'spot_quota':None}],[{'spot_quota':{'device':'4'}},'oops'],
                        [{'spot_quota':{}}],{'spot_quota':{'device':'4'}},'spot'):
-            self.assertEqual(cloud.pool_cells({**base,'spot_status':broken})[3],'-',broken)
+            self.assertEqual(self.counts({**base,'spot_status':broken})[1],'-',broken)
 
     def test_remaining_cards_are_not_split_by_quota_type(self):
         # The binding reports one remaining figure; a SPOT-only pool still has one.
         pool=dict(name='pool',zone='cn-sh-01e',quota_type='SPOT',reserved_number='9',
                   spot_status=[{'spot_quota':{'device':'2'}}])
-        self.assertEqual(cloud.pool_cells(pool)[2:],('9','2'))
-        self.assertEqual(cloud.POOL_COLUMNS[2:],('\u5269\u4f59\u5361\u6570','\u95f2\u65f6\u989d\u5ea6'))
+        self.assertEqual(self.counts(pool),('9','2'))
+        self.assertEqual(cloud.POOL_COLUMNS[-2:],('\u5269\u4f59\u5361\u6570','\u95f2\u65f6\u989d\u5ea6'))
+
+    def test_pools_are_ordered_by_remaining_cards_with_unknown_last(self):
+        pool=lambda name,remaining: dict(name=name,zone='cn-sh-01e',
+            **({'reserved_number':remaining} if remaining is not None else {}))
+        rows=[pool('b-few','26'),pool('a-unknown',None),pool('c-most','192'),
+              pool('d-zero','0'),pool('a-tie','26'),pool('b-unknown',None)]
+        order=[p['name'] for p in sorted(rows,key=cloud.pool_order)]
+        # Unknown sorts last, not as zero; ties fall back to the name.
+        self.assertEqual(order,['c-most','a-tie','b-few','d-zero','a-unknown','b-unknown'])
+
+    def test_specs_are_ordered_by_card_count_then_vcpu(self):
+        def spec(name,vcpu,cards):
+            return {'name':name,'cpu':{'vcpu_allocatable':vcpu,'type':'x'},'memory':{'allocatable':16},
+                    'device':{'number':cards,'resource_key':'nvidia.com/gpu' if cards else '','type':'N6lS'},
+                    'zones':['cn-sh-01e']}
+        raw={'resource_specs':[spec('gpu8',176,8),spec('cpu2',2,0),spec('gpu1-big',22,1),
+                               spec('cpu64',64,0),spec('gpu1-small',8,1)]}
+        rows=cloud.decode_specs(raw,'cn-sh-01e')
+        self.assertEqual([r['WORKER SPEC'] for r in rows],
+                         ['cpu2','cpu64','gpu1-small','gpu1-big','gpu8'])
+
+    def test_pool_without_an_alias_repeats_its_name_rather_than_blanking_a_column(self):
+        cells=dict(zip(cloud.POOL_COLUMNS,cloud.pool_cells(dict(name='public',zone='cn-sh-01e'))))
+        self.assertEqual((cells['\u540d\u79f0'],cells['\u6807\u8bc6']),('public','public'))
+        alias=dict(name='share-cluster',display_name='computing_cluster',zone='cn-sh-01g')
+        cells=dict(zip(cloud.POOL_COLUMNS,cloud.pool_cells(alias)))
+        self.assertEqual((cells['\u540d\u79f0'],cells['\u6807\u8bc6']),('computing_cluster','share-cluster'))
+
+    def test_client_orders_the_binding_list_before_caching_it(self):
+        rows=[dict(name=name,uid='uid-'+name,state='ACTIVE',reserved_number=remaining,
+                   id=f'/subscriptions/sub/resourceGroups/group/zones/cn-sh-01e/aec2s/{name}')
+              for name,remaining in (('low','5'),('high','50'),('unknown',None))]
+        api=cloud.Client({})
+        with patch.object(cloud.rest,'pages',return_value=copy.deepcopy(rows)):
+            self.assertEqual([p['name'] for p in api.clusters(WS)],['high','low','unknown'])
 
     def test_row_outside_the_table_falls_back_to_a_single_line_label(self):
         _,describe=cloud.pool_table(copy.deepcopy(POOLS))

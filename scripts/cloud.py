@@ -68,6 +68,12 @@ def card_text(count):
     return str(int(count)) if count == int(count) else f'{count:.2f}'
 
 
+def pool_order(pool):
+    """Most remaining cards first; an unknown count sorts last rather than as zero."""
+    remaining = pool_cards(pool)['remaining']
+    return (remaining is None, -remaining if remaining is not None else 0, display_name(pool))
+
+
 def pool_label(pool):
     cards = pool_cards(pool)
     shown = ' / '.join(f'{name} {card_text(cards[key])}' for key, name in POOL_FIGURES if cards[key] is not None)
@@ -86,17 +92,19 @@ def table_describe(columns, rows, cells, right, fallback):
     return header, lambda row: next((line for item, line in pairs if item is row), fallback(row))
 
 
-POOL_COLUMNS = ('名称', '可用区', '剩余卡数', '闲时额度')
+POOL_COLUMNS = ('名称', '标识', '可用区', '剩余卡数', '闲时额度')
 
 
 def pool_cells(pool):
+    # A table can give the alias and the submitted resource name their own columns,
+    # so neither has to be parenthesised into one over-wide cell.
     cards = pool_cards(pool)
-    return (display_name(pool), pool.get('zone', ''),
+    return (pool.get('display_name') or pool['name'], pool['name'], pool.get('zone', ''),
             *(card_text(cards[key]) if cards[key] is not None else '-' for key, _ in POOL_FIGURES))
 
 
 def pool_table(pools):
-    return table_describe(POOL_COLUMNS, pools, pool_cells, (2, 3), pool_label)
+    return table_describe(POOL_COLUMNS, pools, pool_cells, (3, 4), pool_label)
 
 
 SPEC_COLUMNS = ('名称', 'vCPU', '内存(GiB)', '加速卡', '卡型号')
@@ -150,7 +158,7 @@ def decode_specs(data, zone):
         rows.append({'WORKER SPEC': spec['name'], 'ZONE': zone, 'VCPU COUNT': str(quantities[0]),
             'MEMORY(GIB)': str(quantities[1]), 'CHIP COUNT': str(quantities[2]),
             'RESOURCE KEY': key, 'CHIP MODEL': str(device.get('type', '')), 'CPU': str(cpu.get('type', ''))})
-    return rows
+    return sorted(rows, key=lambda row: (int(row['CHIP COUNT']), int(row['VCPU COUNT']), row['WORKER SPEC']))
 
 
 class Client:
@@ -234,6 +242,7 @@ class Client:
                 result.append({**row, 'region': workspace['region'], 'zone': zone,
                     'subscription_name': sub, 'resource_group_name': group,
                     'properties': {'vpc_id': row.get('vpc_id', '')}})
+            result.sort(key=pool_order)
             self._clusters[base] = result
         return copy.deepcopy(self._clusters[base])
 
