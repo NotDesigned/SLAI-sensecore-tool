@@ -26,8 +26,16 @@ def my_apps(config, workspace):
     return [row for row in rows if isinstance(row.get('ownership'), dict) and row['ownership'].get('user_id') == uid]
 
 
+COLUMNS = ('名称', '状态', '就绪副本')
+
+
+def cells(app):
+    return (cloud.display_name(app), str(app.get('state') or '未知'),
+            f"{app.get('ready_replicas', 0)}/{app.get('replicas', 0)}")
+
+
 def label(app):
-    return f"{cloud.display_name(app)} · {app.get('state')} · 就绪 {app.get('ready_replicas', 0)}/{app.get('replicas', 0)}"
+    return '  '.join(cells(app))
 
 
 # Shared identity checks also protect DNAT target binding.
@@ -208,7 +216,7 @@ def list_page(config, workspace, plain=False):
     actions = [('create','创建 CCI',lambda: cci.create(cli.load_config(), workspace_name=workspace['name']))]
     actions.append(('create-last','按照上次配置',lambda: cci.create(cli.load_config(), workspace_name=workspace['name'],reuse_last=True)))
     from scripts.listing import resource_key
-    return ui.browse('我的 CCI · ' + workspace['name'], lambda: my_apps(config, workspace), label, selected, plain=plain, actions=actions, cache_key=resource_key('cci',config,workspace))
+    return ui.browse('我的 CCI · ' + workspace['name'], lambda: my_apps(config, workspace), label, selected, plain=plain, actions=actions, cache_key=resource_key('cci',config,workspace), columns=COLUMNS, cells=cells)
 
 
 

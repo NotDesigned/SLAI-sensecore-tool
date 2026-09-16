@@ -36,8 +36,10 @@ def preview(document):
     pool = document.get('resource_pool', {})
     template = document.get('template', {})
     scheduling = document.get('scheduling', {})
-    print(f"资源池：{pool.get('name', '未指定')} · 规格：{template.get('resource_spec', {}).get('name', '未指定')}")
-    print(f"副本数：{document.get('replicas', 1)} · 配额：{cloud.quota_label(scheduling.get('quota_type', 'RESERVED'))}")
+    print('资源池：' + pool.get('name', '未指定'))
+    print('规格：' + template.get('resource_spec', {}).get('name', '未指定'))
+    print(f"副本数：{document.get('replicas', 1)}")
+    print('配额：' + cloud.quota_label(scheduling.get('quota_type', 'RESERVED')))
     for container in template.get('containers', []):
         print('镜像：' + container.get('image_path', '未指定'))
         resources = container.get('resource_request', {})

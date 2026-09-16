@@ -65,7 +65,15 @@ def label(row):
     status = STATES.get(row.get('state'), row.get('state', '状态未知'))
     if row.get('state') == 'CREATING':
         status = STAGES.get(str(row.get('reason', '')).split(':', 1)[0], status)
-    return f"{status} · {image} · {row.get('ccr_namespace', '')}"
+    return '  '.join((status, image, row.get('ccr_namespace', '')))
+
+
+COLUMNS = ('状态', '镜像', '命名空间')
+
+
+def cells(row):
+    image = row.get('name', '') + (':' + row['image_tag'] if row.get('image_tag') else '')
+    return (label(row).split('  ')[0], image, row.get('ccr_namespace', ''))
 
 
 def list_page(config, workspace, app, plain=False):
@@ -88,7 +96,8 @@ def list_page(config, workspace, app, plain=False):
             ui.show_text('镜像保存状态', label(current),
                          hint=str(current.get('reason') or '地址尚未生成，请稍后刷新列表。'),
                          copy_label=None)
-    return ui.browse('已保存的镜像 · ' + app['name'], lambda: snapshots(config, workspace, app), label, selected, plain=plain)
+    return ui.browse('已保存的镜像 · ' + app['name'], lambda: snapshots(config, workspace, app), label, selected, plain=plain,
+                     columns=COLUMNS, cells=cells)
 
 
 def create_interactive(config, workspace, app):

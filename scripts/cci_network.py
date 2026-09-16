@@ -29,7 +29,7 @@ def endpoint_label(row):
     p = row['properties']
     target = p.get('internal_instance_name') or p.get('internal_ip')
     status = f"已绑定 → {target}:{p.get('internal_port')}" if target else '未绑定'
-    return f"{p.get('external_ip', '未知 IP')}:{p['external_port']} · {status} · {row['name']}"
+    return '  '.join((f"{p.get('external_ip', '未知 IP')}:{p['external_port']}", status, row['name']))
 
 
 def plan_dnat(config, document, ports, ssh_port=None):

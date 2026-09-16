@@ -5,6 +5,7 @@ Screen { background: $surface; }
 Picker, Edit { align: center middle; }
 #home, Picker OptionList { height: 1fr; border: none; }
 .dialog OptionList { height: auto; max-height: 18; }
+.table-head { height: 1; padding: 0 1; color: $text-muted; text-style: bold; }
 Input { height: 3; }
 DataTable, RichLog, TextArea { height: 1fr; }
 .buttons { height: 3; }

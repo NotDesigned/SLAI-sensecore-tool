@@ -10,7 +10,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-from scripts import cli, ui, rest, plans
+from scripts import cli, cloud, ui, rest, plans
 from scripts.cloud import Client, properties
 from scripts.ui import Cancelled, choose, ask
 
@@ -305,8 +305,9 @@ def bind_existing_cci(config, api, row):
             pool = app.get('resource_pool', {})
             if isinstance(pool, dict) and pool.get('available_zone') == eip['zone'] and pool.get('vpc_id') == vpc:
                 candidates.append((ws, app))
-    ws, app = choose('目标 CCI（当前用户、同可用区、同 VPC）', candidates,
-                     lambda entry: cci_service.label(entry[1]) + ' · ' + entry[0]['name'])
+    header, describe = cloud.table_describe(('名称', '状态', '就绪副本', '工作空间'), candidates,
+        lambda entry: (*cci_service.cells(entry[1]), entry[0]['name']), (), lambda entry: cci_service.label(entry[1]))
+    ws, app = choose('目标 CCI（当前用户、同可用区、同 VPC）', candidates, describe, header=header)
     current = cci_service.owned_app(config, ws, app['name'])
     if not current.get('uid') or current.get('uid') != app.get('uid') or current.get('resource_pool') != app.get('resource_pool'):
         raise cli.ConfigError('CCI 已变化，请刷新后重试。')
@@ -406,7 +407,9 @@ def main(args):
                 raise cli.ConfigError('EIP 名称不存在或不唯一，请使用交互选择。')
             eip = eips[0]
         else:
-            eip = choose('EIP', eips, lambda x: f"{x['name']} · {x.get('display_name')} · {x.get('zone')}")
+            header, describe = cloud.table_describe(('名称', '别名', '可用区'), eips,
+                lambda x: (x['name'], str(x.get('display_name') or ''), str(x.get('zone') or '')), (), cloud.resource_label)
+            eip = choose('EIP', eips, describe, header=header)
         api = Api(config, eip)
         name = options.name or ask('规则名称', 'slai-dnat-' + uuid.uuid4().hex[:12])
         body = new_rule(api, name)

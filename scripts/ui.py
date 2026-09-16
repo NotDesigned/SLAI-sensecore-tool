@@ -61,6 +61,45 @@ def secret(label):
 
 
 
+def cell_width(value):
+    # CJK names occupy two terminal columns, so len() would misalign every column.
+    from rich.cells import cell_len
+    return cell_len(str(value))
+
+
+def clip(value, width):
+    text = str(value)
+    if cell_width(text) <= width:
+        return text
+    kept = ''
+    for character in text:
+        if cell_width(kept + character) > width - 1:
+            break
+        kept += character
+    return kept + '…'
+
+
+def aligned(columns, rows, right=(), limit=78):
+    """Header plus body lines padded to shared column widths."""
+    if any(len(row) != len(columns) for row in rows):
+        raise cli.ConfigError('表格列数与表头不一致。')
+    widths = [max(cell_width(cell) for cell in column) for column in zip(columns, *rows)]
+    excess = sum(widths) + 2 * (len(widths) - 1) - limit
+    if excess > 0:
+        # Only the leading name column gives up space; counts must stay readable.
+        widths[0] = max(8, widths[0] - excess)
+
+    def line(cells):
+        parts = []
+        for index, (cell, width) in enumerate(zip(cells, widths)):
+            text = clip(cell, width)
+            pad = ' ' * max(0, width - cell_width(text))
+            parts.append(pad + text if index in right else text + pad)
+        return '  '.join(parts).rstrip()
+
+    return line(columns), [line(row) for row in rows]
+
+
 class Cancelled(Exception):
     pass
 
@@ -74,19 +113,23 @@ def choice_default(items, default=None):
     return default if default in choices else (choices[0] if choices else None)
 
 
-def choose(label, items, describe=str, default=None):
+def choose(label, items, describe=str, default=None, header=''):
     default = choice_default(items, default)
     if active():
-        return backend().choose(label, items, describe, default)
+        return backend().choose(label, items, describe, default, header=header)
     if not items:
         raise cli.ConfigError(f'{label}没有可选项，请检查权限和上级选择。')
     print(f'\n{label}：')
     back = next((item for item in items if isinstance(item, str)
                  and item in ('返回', '返回列表', '取消')), None)
     choices = [item for item in items if item is not back]
+    # Pad the numbering only under a header, so every other menu keeps its shape.
+    number = len(str(len(choices))) if header else 0
+    if header:
+        print(' ' * (number + 2) + header)
     for index, item in enumerate(choices, 1):
         suffix = ' [默认]' if item == default else ''
-        print(f'{index}. {describe(item)}{suffix}')
+        print(f'{index:>{number}}. {describe(item)}{suffix}')
     suffix = ' [默认]' if back is not None and back == default else ''
     print(f'0. {back or "返回"}{suffix}')
     while True:
@@ -203,11 +246,12 @@ def select_resource(title, source):
             return page.rows[int(value) - 1]
 
 
-def browse(title, fetch, describe, operate, *, plain=False, actions=(), cache_key=None):
+def browse(title, fetch, describe, operate, *, plain=False, actions=(), cache_key=None,
+           columns=None, cells=None):
     """Refresh on request or after an action; retain the page on invalid input."""
     if active() and not plain:
         from scripts.listing import LocalSource, CachedSource
-        source = LocalSource(fetch, describe)
+        source = LocalSource(fetch, describe, columns=columns or ('资源',), cells=cells)
         if cache_key is not None:
             source = CachedSource(source, cache_key, ttl=30 if cache_key[0]=='dnat' else 15)
         return backend().browse(title, source, operate, actions=actions)
@@ -222,8 +266,13 @@ def browse(title, fetch, describe, operate, *, plain=False, actions=(), cache_ke
                 continue
             return
         print(f'\n{title}：共 {len(rows)} 项')
-        for index, row in enumerate(rows, 1):
-            print(f'{index}. {describe(row)}')
+        header, lines = (aligned(columns, [cells(row) for row in rows])
+                         if columns and cells else ('', [describe(row) for row in rows]))
+        number = len(str(len(lines))) if header else 0
+        if header:
+            print(' ' * (number + 2) + header)
+        for index, line in enumerate(lines, 1):
+            print(f'{index:>{number}}. {line}')
         if plain:
             return
         for key, label, _ in actions:

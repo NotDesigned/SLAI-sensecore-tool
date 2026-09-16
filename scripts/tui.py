@@ -109,13 +109,13 @@ class Bridge:
         if self.sink is not None:
             self.app.call_from_thread(lambda: self.sink(value) if self.owner is None or self.owner.is_mounted else None)
 
-    def choose(self, title, items, describe, default):
+    def choose(self, title, items, describe, default, header=''):
         if not items:
             raise cli.ConfigError(title + '没有可选项，请检查权限和上级选择。')
         back = next((x for x in items if isinstance(x, str) and x in ('返回', '返回列表', '取消')), None)
         choices = [x for x in items if x is not back]
         context = self.history if isinstance(default, str) and default in ('取消', '仅保存配置', '提交创建') else ''
-        value = self.request(Picker(title, choices, describe, default, back, context))
+        value = self.request(Picker(title, choices, describe, default, back, context, header))
         if value is None:
             if isinstance(self.owner, Operation):
                 self.owner.cancelled = True
@@ -172,9 +172,10 @@ class BackScreen(ModalScreen):
 
 
 class Picker(BackScreen):
-    def __init__(self, title, choices, describe=str, default=None, back=None, context=''):
+    def __init__(self, title, choices, describe=str, default=None, back=None, context='', header=''):
         super().__init__()
         self.title_text, self.choices, self.describe = title, choices, describe
+        self.header = header
         self.default = ui.choice_default([*choices, *([back] if back is not None else [])], default)
         self.back, self.context = back, context
         self.indices = list(range(len(choices)))
@@ -186,6 +187,8 @@ class Picker(BackScreen):
                 yield TextArea(self.context, read_only=True, classes='review-context')
             if len(self.choices) > 8:
                 yield Input(placeholder='搜索选项', id='filter')
+            if self.header:
+                yield Static(literal(self.header), classes='table-head')
             yield OptionList(id='options')
             yield Button('0 返回' if self.back != '取消' else '0 取消', id='back')
         yield Footer()

@@ -1,6 +1,7 @@
 """Shared REST resource discovery for cloud services."""
 from scripts.ui import output as print
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -15,6 +16,9 @@ DEFAULT_IMAGE = ('registry.cn-sh-01.sensecore.cn/lepton-trainingjob/'
 DEFAULT_CCI_IMAGE = 'registry.cn-sh-01.sensecore.cn/ccr-zhicheng-02/slai-cci-pytorch-ssh:25.06-20260911'
 
 QUOTA_LABELS = {'RESERVED': '预留资源', 'SPOT': '闲时资源'}
+
+# The binding's own wording: a remaining count, and a separately reported spot allowance.
+POOL_FIGURES = (('remaining', '剩余卡数'), ('spot', '闲时额度'))
 
 def quota_label(value):
     return QUOTA_LABELS.get(value, value)
@@ -38,6 +42,76 @@ def display_name(item):
 
 def resource_label(item):
     return f"{display_name(item)} · {item.get('zone', '')}"
+
+
+def card_count(value):
+    """Counts arrive as strings; anything unusable stays unknown rather than zero."""
+    try:
+        count = float(value)
+    except (TypeError, ValueError):
+        return None
+    return count if math.isfinite(count) and count >= 0 else None
+
+
+def pool_cards(pool):
+    # The binding reports one remaining-card figure plus a separate spot allowance.
+    # It does not split remaining cards by quota type, so neither do we.
+    # A share we cannot read makes the total unknown; dropping it would understate it.
+    shares = pool.get('spot_status')
+    shares = [card_count((row.get('spot_quota') or {}).get('device')) if isinstance(row, dict) else None
+              for row in shares] if isinstance(shares, list) else []
+    return {'remaining': card_count(pool.get('reserved_number')),
+            'spot': sum(shares) if shares and None not in shares else None}
+
+
+def card_text(count):
+    return str(int(count)) if count == int(count) else f'{count:.2f}'
+
+
+def pool_label(pool):
+    cards = pool_cards(pool)
+    shown = ' / '.join(f'{name} {card_text(cards[key])}' for key, name in POOL_FIGURES if cards[key] is not None)
+    return resource_label(pool) + (' · ' + shown if shown else '')
+
+
+def spec_label(spec):
+    return (f"{spec['WORKER SPEC']} · {spec['VCPU COUNT']} CPU / {spec['MEMORY(GIB)']} GiB"
+            f" / 加速卡 {spec['CHIP COUNT']}")
+
+
+def table_describe(columns, rows, cells, right, fallback):
+    """Column widths span the whole list, so build the describe callable per picker."""
+    header, lines = ui.aligned(columns, [cells(row) for row in rows], right=right)
+    pairs = list(zip(rows, lines))  # Rows are unhashable dicts; match on identity.
+    return header, lambda row: next((line for item, line in pairs if item is row), fallback(row))
+
+
+POOL_COLUMNS = ('名称', '可用区', '剩余卡数', '闲时额度')
+
+
+def pool_cells(pool):
+    cards = pool_cards(pool)
+    return (display_name(pool), pool.get('zone', ''),
+            *(card_text(cards[key]) if cards[key] is not None else '-' for key, _ in POOL_FIGURES))
+
+
+def pool_table(pools):
+    return table_describe(POOL_COLUMNS, pools, pool_cells, (2, 3), pool_label)
+
+
+SPEC_COLUMNS = ('名称', 'vCPU', '内存(GiB)', '加速卡', '卡型号')
+
+
+def spec_cells(spec):
+    cards = spec.get('CHIP COUNT', '')
+    # A CPU-only specification still carries a chip model; showing it would imply cards.
+    model = spec.get('CHIP MODEL', '') if cards not in ('', '0') else ''
+    return (spec['WORKER SPEC'], spec.get('VCPU COUNT', ''),
+            spec.get('MEMORY(GIB)', ''), cards or '-', model or '-')
+
+
+def spec_table(specs):
+    return table_describe(SPEC_COLUMNS, specs, spec_cells, (1, 2, 3), spec_label)
 
 
 def scope_path(resource, collection):

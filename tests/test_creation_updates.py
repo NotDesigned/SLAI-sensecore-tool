@@ -8,9 +8,21 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
-from scripts import acp, cci, cci_api, cli, cloud, docker_registry, forms, network, ui, workspace
+from scripts import acp, cci, cci_api, cli, cloud, copy_draft, docker_registry, forms, network, ui, workspace
 
 WS=dict(name='ws',region='cn-sh-01',subscription_name='sub',resource_group_name='group',zone='cn-sh-01z')
+# A recorded workspaceAEC2Bindings row, trimmed only of fields the form never reads.
+POOLS=[dict(name='computing-cluster-01e',display_name='computing_cluster_01e',id='pool-id',uid='pool-uid',
+            zone='cn-sh-01e',state='ACTIVE',properties={'vpc_id':'vpc'},quota_type='ALL',
+            reserved_cpu='2662.00',reserved_number='69',reserved_memory='23251.00Gi',
+            spot_status=[{'spot_name':'default','spot_quota':{'cpu':'1514.00','device':'6','memory':'10088.00Gi'}}]),
+       dict(name='debug-mig-cluster-01e',display_name='debug_mig_cluster_01e',id='debug-id',uid='debug-uid',
+            zone='cn-sh-01e',state='ACTIVE',properties={'vpc_id':'vpc'},quota_type='SPOT',
+            spot_status=[{'spot_name':'default','spot_quota':{'device':'2'}}])]
+SPECS=[{'WORKER SPEC':'small','ZONE':'cn-sh-01e','VCPU COUNT':'2','MEMORY(GIB)':'4','CHIP COUNT':'0','CHIP MODEL':'N6lS'},
+       {'WORKER SPEC':'gpu-8','ZONE':'cn-sh-01e','VCPU COUNT':'176','MEMORY(GIB)':'1840','CHIP COUNT':'8','CHIP MODEL':'N6lS'}]
+ACP_DOC={'resource_pool':{'name':'computing-cluster-01e','available_zone':'cn-sh-01e'},
+         'roles':[{'resource_spec':[{'name':'small'}],'total_replicas':1,'startup_script':'run','image_path':'img'}]}
 ID='sha256:'+'a'*64
 
 def client():
@@ -67,6 +79,89 @@ class CreationTests(unittest.TestCase):
                 else:
                     with self.assertRaises(cli.ConfigError):acp.confirm_submit(c,'ws','new',{},draft=draft)
             c.create.assert_not_called()
+
+class PickerTableTests(unittest.TestCase):
+    def picker(self, draft, key):
+        captured={}
+        def choose(label,rows,describe,default=None,header=''):
+            captured.update(label=label,header=header,default=default,lines=[describe(row) for row in rows])
+            return rows[0]
+        with patch.object(ui,'choose',side_effect=choose):draft.edit(key)
+        return captured
+
+    def test_acp_create_and_copy_pickers_render_a_pool_table(self):
+        c=client();c.clusters.return_value=copy.deepcopy(POOLS)
+        for draft in (forms.CreateDraft('acp',c,WS),copy_draft.CopyDraft('acp',c,WS,ACP_DOC,'src')):
+            shown=self.picker(draft,'cluster')
+            self.assertEqual(shown['label'],'\u8d44\u6e90\u6c60')
+            self.assertEqual(shown['header'],
+                '\u540d\u79f0                                           \u53ef\u7528\u533a     \u5269\u4f59\u5361\u6570  \u95f2\u65f6\u989d\u5ea6')
+            self.assertEqual(shown['lines'],
+                ['computing_cluster_01e (computing-cluster-01e)  cn-sh-01e        69         6',
+                 'debug_mig_cluster_01e (debug-mig-cluster-01e)  cn-sh-01e         -         2'])
+
+    def test_copy_keeps_the_source_pool_selected_and_blocks_multi_role_edits(self):
+        c=client();c.clusters.return_value=copy.deepcopy(POOLS);c.specs.return_value=copy.deepcopy(SPECS)
+        draft=copy_draft.CopyDraft('acp',c,WS,ACP_DOC,'src');draft.initialize()
+        # The picker must open on the pool the source used, not silently on the first row.
+        self.assertEqual(self.picker(draft,'cluster')['default']['name'],'computing-cluster-01e')
+        document=copy.deepcopy(ACP_DOC);document['roles']=document['roles']*2
+        multi=copy_draft.CopyDraft('acp',c,WS,document,'src');multi.initialize()
+        with self.assertRaisesRegex(cli.ConfigError,'\u4fdd\u7559\u8d44\u6e90\u6c60'):multi.edit('cluster')
+
+    def test_spec_picker_renders_a_table(self):
+        c=client();c.clusters.return_value=copy.deepcopy(POOLS);c.specs.return_value=copy.deepcopy(SPECS)
+        draft=forms.CreateDraft('acp',c,WS);self.picker(draft,'cluster')
+        shown=self.picker(draft,'spec')
+        self.assertEqual(shown['label'],'\u5b9e\u4f8b\u89c4\u683c')
+        self.assertEqual(shown['header'],'\u540d\u79f0   vCPU  \u5185\u5b58(GiB)  \u52a0\u901f\u5361  \u5361\u578b\u53f7')
+        # A CPU-only specification must not advertise a chip model.
+        self.assertEqual(shown['lines'],['small     2          4       0  -',
+                                         'gpu-8   176       1840       8  N6lS'])
+
+    def test_columns_align_by_terminal_width_not_character_count(self):
+        header,lines=ui.aligned(('\u540d\u79f0','\u5269\u4f59'),[('\u8d44\u6e90\u6c60\u7532','7'),('pool','70')],right=(1,))
+        self.assertEqual([header,*lines],['\u540d\u79f0      \u5269\u4f59',
+                                          '\u8d44\u6e90\u6c60\u7532     7','pool        70'])
+        # Every row ends flush, which len() on CJK text would silently break.
+        self.assertEqual({ui.cell_width(line) for line in (header,*lines)},{14})
+
+    def test_overlong_names_are_clipped_instead_of_wrapping_the_table(self):
+        _,lines=ui.aligned(('\u540d\u79f0',),[('\u8d44\u6e90\u6c60\u7532\u4e59\u4e19\u4e01\u620a\u5df1\u5e9a\u8f9b',)],limit=12)
+        self.assertEqual(lines,['\u8d44\u6e90\u6c60\u7532\u4e59\u2026'])
+        self.assertLessEqual(ui.cell_width(lines[0]),12)
+
+    def test_unusable_counts_read_as_unknown_and_zero_is_still_reported(self):
+        base=dict(name='pool',zone='cn-sh-01e')
+        # Negative control: nothing known must read as unknown, never as zero.
+        self.assertEqual(cloud.pool_cells(base)[2:],('-','-'))
+        for bad in ('n/a','','-3','nan','inf','1e400'):
+            self.assertEqual(cloud.pool_cells({**base,'reserved_number':bad})[2:],('-','-'),bad)
+        self.assertEqual(cloud.pool_cells({**base,'reserved_number':'0','spot_status':[]})[2:],('0','-'))
+        # Fractions are reported, not truncated into a tidier-looking integer.
+        self.assertEqual(cloud.pool_cells({**base,'reserved_number':'6.9'})[2],'6.90')
+        self.assertEqual(cloud.pool_cells({**base,'reserved_number':'69.00'})[2],'69')
+
+    def test_unreadable_spot_shares_make_the_total_unknown_instead_of_understating_it(self):
+        base=dict(name='pool',zone='cn-sh-01e',reserved_number='69')
+        self.assertEqual(cloud.pool_cells({**base,'spot_status':[{'spot_quota':{'device':'4'}},
+                                                                 {'spot_quota':{'device':'2'}}]})[3],'6')
+        for broken in ([{'spot_quota':None}],[{'spot_quota':{'device':'4'}},'oops'],
+                       [{'spot_quota':{}}],{'spot_quota':{'device':'4'}},'spot'):
+            self.assertEqual(cloud.pool_cells({**base,'spot_status':broken})[3],'-',broken)
+
+    def test_remaining_cards_are_not_split_by_quota_type(self):
+        # The binding reports one remaining figure; a SPOT-only pool still has one.
+        pool=dict(name='pool',zone='cn-sh-01e',quota_type='SPOT',reserved_number='9',
+                  spot_status=[{'spot_quota':{'device':'2'}}])
+        self.assertEqual(cloud.pool_cells(pool)[2:],('9','2'))
+        self.assertEqual(cloud.POOL_COLUMNS[2:],('\u5269\u4f59\u5361\u6570','\u95f2\u65f6\u989d\u5ea6'))
+
+    def test_row_outside_the_table_falls_back_to_a_single_line_label(self):
+        _,describe=cloud.pool_table(copy.deepcopy(POOLS))
+        self.assertEqual(describe({'name':'other','zone':'cn-sh-01e','reserved_number':'3'}),
+                         'other \u00b7 cn-sh-01e \u00b7 \u5269\u4f59\u5361\u6570 3')
+
 
 class ImageSyncTests(unittest.TestCase):
     def plan(self):

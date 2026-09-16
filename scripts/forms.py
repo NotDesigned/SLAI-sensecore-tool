@@ -191,13 +191,17 @@ class CreateDraft:
         v = self.values
         if key == 'cluster':
             rows = self.clusters()
-            cluster = rows[0] if len(rows) == 1 else ui.choose('资源池', rows, cloud.resource_label, v['cluster'])
+            if len(rows) == 1:
+                cluster = rows[0]
+            else:
+                header, describe = cloud.pool_table(rows)
+                cluster = ui.choose('资源池', rows, describe, v['cluster'], header=header)
             self.set_cluster(cluster)
         elif key == 'spec':
             self.need_cluster()
             specs = self.specs(v['cluster'])
-            v['spec'] = ui.choose('实例规格', specs,
-                lambda x: f"{x['WORKER SPEC']} · {x['VCPU COUNT']} CPU / {x['MEMORY(GIB)']} GiB / 加速卡 {x['CHIP COUNT']}", v['spec'])
+            header, describe = cloud.spec_table(specs)
+            v['spec'] = ui.choose('实例规格', specs, describe, v['spec'], header=header)
         elif key in ('quota', 'framework'):
             choices = ['RESERVED', 'SPOT'] if key == 'quota' else ['pytorch', 'tensorflow', 'mpi', 'senseparrots']
             v[key] = ui.choose(dict((k, n) for k, n, _ in self.rows())[key], choices, describe=cloud.quota_label if key == 'quota' else str, default=v[key])
