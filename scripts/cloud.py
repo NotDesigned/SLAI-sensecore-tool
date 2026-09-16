@@ -92,19 +92,27 @@ def table_describe(columns, rows, cells, right, fallback):
     return header, lambda row: next((line for item, line in pairs if item is row), fallback(row))
 
 
-POOL_COLUMNS = ('名称', '标识', '可用区', '剩余卡数', '闲时额度')
+POOL_COLUMNS = ('别名', '名称', '可用区', '剩余卡数', '闲时额度')
+
+
+def pool_alias(pool):
+    # Most aliases only respell the name with underscores. Such an alias says nothing,
+    # and giving it a column crowds out the name the user actually picks a pool by.
+    alias = (pool.get('display_name') or '').strip()
+    respelt = alias.replace('_', '-').casefold() == pool['name'].replace('_', '-').casefold()
+    return '' if respelt else alias
 
 
 def pool_cells(pool):
-    # A table can give the alias and the submitted resource name their own columns,
-    # so neither has to be parenthesised into one over-wide cell.
     cards = pool_cards(pool)
-    return (pool.get('display_name') or pool['name'], pool['name'], pool.get('zone', ''),
+    return (pool_alias(pool), pool['name'], pool.get('zone', ''),
             *(card_text(cards[key]) if cards[key] is not None else '-' for key, _ in POOL_FIGURES))
 
 
 def pool_table(pools):
-    return table_describe(POOL_COLUMNS, pools, pool_cells, (3, 4), pool_label)
+    if any(pool_alias(pool) for pool in pools):
+        return table_describe(POOL_COLUMNS, pools, pool_cells, (3, 4), pool_label)
+    return table_describe(POOL_COLUMNS[1:], pools, lambda pool: pool_cells(pool)[1:], (2, 3), pool_label)
 
 
 SPEC_COLUMNS = ('名称', 'vCPU', '内存(GiB)', '加速卡', '卡型号')

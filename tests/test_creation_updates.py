@@ -99,12 +99,11 @@ class PickerTableTests(unittest.TestCase):
         for draft in (forms.CreateDraft('acp',c,WS),copy_draft.CopyDraft('acp',c,WS,ACP_DOC,'src')):
             shown=self.picker(draft,'cluster')
             self.assertEqual(shown['label'],'\u8d44\u6e90\u6c60')
+            # Every alias here only respells the name, so that column is dropped entirely.
             self.assertEqual(shown['header'],
-                '\u540d\u79f0                   \u6807\u8bc6                   \u53ef\u7528\u533a     \u5269\u4f59\u5361\u6570  \u95f2\u65f6\u989d\u5ea6')
-            # Alias and submitted name get their own columns instead of one parenthesised cell.
-            self.assertEqual(shown['lines'],
-                ['computing_cluster_01e  computing-cluster-01e  cn-sh-01e        69         6',
-                 'debug_mig_cluster_01e  debug-mig-cluster-01e  cn-sh-01e         -         2'])
+                '\u540d\u79f0                   \u53ef\u7528\u533a     \u5269\u4f59\u5361\u6570  \u95f2\u65f6\u989d\u5ea6')
+            self.assertEqual(shown['lines'],['computing-cluster-01e  cn-sh-01e        69         6',
+                                             'debug-mig-cluster-01e  cn-sh-01e         -         2'])
 
     def test_copy_keeps_the_source_pool_selected_and_blocks_multi_role_edits(self):
         c=client();c.clusters.return_value=copy.deepcopy(POOLS);c.specs.return_value=copy.deepcopy(SPECS)
@@ -183,12 +182,38 @@ class PickerTableTests(unittest.TestCase):
         self.assertEqual([r['WORKER SPEC'] for r in rows],
                          ['cpu2','cpu64','gpu1-small','gpu1-big','gpu8'])
 
-    def test_pool_without_an_alias_repeats_its_name_rather_than_blanking_a_column(self):
-        cells=dict(zip(cloud.POOL_COLUMNS,cloud.pool_cells(dict(name='public',zone='cn-sh-01e'))))
-        self.assertEqual((cells['\u540d\u79f0'],cells['\u6807\u8bc6']),('public','public'))
-        alias=dict(name='share-cluster',display_name='computing_cluster',zone='cn-sh-01g')
-        cells=dict(zip(cloud.POOL_COLUMNS,cloud.pool_cells(alias)))
-        self.assertEqual((cells['\u540d\u79f0'],cells['\u6807\u8bc6']),('computing_cluster','share-cluster'))
+    def test_an_alias_that_only_respells_the_name_earns_no_column(self):
+        for display in ('computing_cluster_01e','COMPUTING-CLUSTER-01E','  computing_cluster_01e  ',''):
+            self.assertEqual(cloud.pool_alias(dict(name='computing-cluster-01e',display_name=display)),'',display)
+        self.assertEqual(cloud.pool_alias(dict(name='share-cluster',display_name='computing_cluster')),
+                         'computing_cluster')
+        # The screenshot's pools: with no alias worth showing, the name column gets the width back.
+        rows=[dict(name='computing-cluster-01e-hbxx',display_name='computing_cluster_01e_hbxx',
+                   zone='cn-sh-01e',reserved_number='0')]
+        header,describe=cloud.pool_table(rows)
+        self.assertEqual(header.split()[0],'\u540d\u79f0')
+        self.assertIn('computing-cluster-01e-hbxx',describe(rows[0]))
+        self.assertNotIn('\u2026',describe(rows[0]))
+
+    def test_a_distinct_alias_keeps_its_own_column(self):
+        rows=[dict(name='share-cluster',display_name='computing_cluster',zone='cn-sh-01g',reserved_number='192'),
+              dict(name='computing-cluster-01e',display_name='computing_cluster_01e',zone='cn-sh-01e',reserved_number='69')]
+        header,describe=cloud.pool_table(rows)
+        # Counts stay right-aligned once the alias column shifts them along.
+        self.assertEqual(header,'\u522b\u540d               \u540d\u79f0                   \u53ef\u7528\u533a     \u5269\u4f59\u5361\u6570  \u95f2\u65f6\u989d\u5ea6')
+        self.assertEqual([describe(row) for row in rows],
+            ['computing_cluster  share-cluster          cn-sh-01g       192         -',
+             '                   computing-cluster-01e  cn-sh-01e        69         -'])
+
+    def test_choose_forwards_the_header_to_the_active_backend(self):
+        # Every other test patches ui.choose itself, so this is the only cover for the TUI path.
+        backend=Mock();backend.choose.return_value='a'
+        token=ui._backend.set(backend)
+        try:
+            ui.choose('\u6807\u9898',['a','b'],str,'a',header='H')
+        finally:
+            ui._backend.reset(token)
+        self.assertEqual(backend.choose.call_args.kwargs.get('header'),'H')
 
     def test_client_orders_the_binding_list_before_caching_it(self):
         rows=[dict(name=name,uid='uid-'+name,state='ACTIVE',reserved_number=remaining,
